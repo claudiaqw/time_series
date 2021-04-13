@@ -59,7 +59,7 @@ Analicemos si la serie es estacionaria. Para que una serie sea estacionaria tien
 * Sea estacionaria en varianza
 * Sea estacionaria en covarianza
 
-Inicialmente analizaremos si la serie es estacionaria en varianza. Se evalúa la necesidad de transformar la serie para hacerla estacionaria en varianza. 
+Inicialmente analizaremos si la serie es estacionaria en varianza. Se evalúa la necesidad de transformar la serie para hacerla estacionaria en varianza a través de la transformación BoxCox.
 
 ```{r}
 box_cox <- boxcox(total ~ date,
@@ -89,21 +89,6 @@ ggplot(aes(x= date, y = exp_total), data = data.train) +
   xlab('FECHA') + ylab('Exp_Hipotecas')
 
 ```
-```{r}
-box_cox <- boxcox(exp_total ~ date,
-                  data = data.train,
-                  lambda = c(0, 0.5, 1))
-
-```
-```{r}
-lambda <- box_cox$x[which.max(box_cox$y)]
-lambda
-```
-
-```
-
-
-
 
 Verifiquemos si el modelo es estacionario en media
 
