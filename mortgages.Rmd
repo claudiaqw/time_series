@@ -14,13 +14,15 @@ knitr::opts_chunk$set(echo = TRUE)
 El dataset describe el comportamiento de la contratación de hipotecas en España desde 2003 hasta 2019.
 
 
-```{r echo=FALSE}
+```{r echo=FALSE, message=FALSE}
 library(lubridate)
 library(ggplot2)
 library(plotly)
 library(tseries)
+library(lmtest)
 library(MASS)
 library(forecast)
+library(caschrono)
 ```
 
 
@@ -53,12 +55,6 @@ ggplot(aes(x= date, y = total), data = data.train) +
 
 ## Modelos
 
-Analicemos si la serie es estacionaria. Para que una serie sea estacionaria tiene que cumplir que:
-
-* Sea estacionaria en media
-* Sea estacionaria en varianza
-* Sea estacionaria en covarianza
-
 Inicialmente analizaremos si la serie es estacionaria en varianza. Se evalúa la necesidad de transformar la serie para hacerla estacionaria en varianza a través de la transformación BoxCox.
 
 ```{r}
@@ -71,8 +67,7 @@ box_cox <- boxcox(total ~ date,
 lambda <- box_cox$x[which.max(box_cox$y)]
 lambda
 ```
-Al obtener un lambda cercano a 0.065 no se puede afirmar que el modelo ...
-
+El obtener un lambda cercano a 0.065 diferente de 1 indica que la serie no es estacionaria en varianza, por lo tanto, hay que aplicar una transformación   
 
 ```{r}
 
@@ -82,41 +77,100 @@ data.train.ts <- as.ts(data.train$exp_total, frequency = 12)
 data.test.ts <- as.ts(data.test$exp_total, frequency=12)
 ```
 
-
-```{r}
-ggplot(aes(x= date, y = exp_total), data = data.train) +
-  geom_line(color = '#d84519', size = 1) + 
-  xlab('FECHA') + ylab('Exp_Hipotecas')
-
-```
-
 Verifiquemos si el modelo es estacionario en media
 
 ```{r}
 adf.test(data.train.ts)
 ```
-Al aplicar el test de Dickey-Fuller se obtiene un p-value alto, por lo que no se puede rechazar la hipótesis nula y esto sugiere que podría ser necesaria una diferencia regular.
+Al aplicar el test de Dickey-Fuller se obtiene un p-value alto, por lo que no se puede rechazar la hipótesis nula y esto sugiere que podría ser necesaria una diferencia regular. En este caso, ya que el test aplicado no es .... tomar
 
 ```{r}
 
 ```
 
-## Ajuste de un modelo ARIMA
+## Ajuste de modelos
 
-Para decidir el mejor modelo, se visualizan las gráficos de las autocorrelaciones simple y parcial
+A continuación, se visualizan la funciones de autocorrelación simple y parcial de residuos para comprobar si se cumple la hipótesis de ruido blanco. Inicialmente, se hace sobre los datos originales porque la serie original es el residuo.
+
+En la siguiente gráfica se muestra la función de correlación simple. Se puede notar que la cantidad de palitos que están fuera de la banda son infinitos por lo que estamos en presencia de un MA (denota el orden de la q) infinito. En clase fue demostrado que un MA infinito es equivalente a un AR (parte autorregresiva) finito.
 
 ```{r}
-
 acf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
     main= "Función de autocorrelacion simple")
 ```
+
+Para determinar el orden de la AR se dibuja el gráfico de correlación parcial. De igual manera el orden de la P se determina teniendo en cuenta la cantidad de líneas fuera de la banda. La imagen sugiere de momento que el orden de la parte autorregresiva puede ser 1 porque es la línea que más sobresale.
+
 ```{r}
 pacf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
 
 ```
 
+Por esta razón se propone como modelo inicial un AR(1)
 
+```{r}
+
+fit.1 <- Arima(data.train.ts,
+               order = c(1, 0, 0),
+               method = 'ML')
+
+fit.1
+```
+```{r}
+coeftest(fit.1)
+```
+Los dos parámetros son significativos y distintos de 0. La suma de los parámetros no es cercana a 1 por lo que no se viola la condición de estacionalidad.
+
+
+Analicemos las correlaciones entre los parámetros para evitar que exista colinealidad.
+
+```{r}
+cor.arma(fit.1)
+```
+La correlación entre ambos parámetros no es alta por lo cual no existe colinealidad.
+
+Analicemos la hipótesis de ruido blanco.
+
+El siguiente test muestra si las correlaciones de los 6 primeros residuos son ruido blanco.
+
+```{r}
+Box.test.2(residuals(fit.1),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+```
+Comprobemos la afirmación anterior a través de las gráficas de autocorrelacion.Efectivamente, en la siguiente figura, se puede observar que la serie no cumple la hipótesis de ruido blanco.
+
+```{r}
+acf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
+    main= "Función de autocorrelacion simple")
+```
+Se puede observar cierta simetría lo que indica que hay una parte regular que va asociada a los instantes inmediatamente anteriores y una parte estacional que va asociada a los mismos instantes pero retardados ese período de tiempo -> SARIMA multiplicativo.
+
+Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 12
+
+
+```{r}
+pacf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion parcial")
+```
+El palito más sobresaliente de la banda es el 1 lo cual sugiere un modelo AR(1)
+
+
+```{r}
+fit.2 <- Arima(data.train.ts,
+               order = c(1, 0, 0),
+               seasonal = list(order = c(1, 0, 0), period=12),
+               method = 'ML')
+
+fit.2
+
+```
+```{r}
+coeftest(fit.2)
+```
+
+
+Si en em AM1 la suma de los parámetros es cercana a 1 eso indica que se viola la condición de invertibilidad lo que se traduce en que los datos remotos tienen mayor peso que los datos más recientes.
 
 
 
