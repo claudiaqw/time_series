@@ -1,0 +1,138 @@
+---
+title: "Análisis de Series Temporales"
+author: "Claudia Quintana Wong"
+date: "13/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introducción
+
+El dataset describe el comportamiento de la contratación de hipotecas en España desde 2003 hasta 2019.
+
+
+```{r echo=FALSE}
+library(lubridate)
+library(ggplot2)
+library(plotly)
+library(tseries)
+library(MASS)
+library(forecast)
+```
+
+
+```{r cars}
+original <- readxl::read_xlsx("./data/Hipotecas.xlsx")
+original <- original[c('...1', '01 Álava', '20 Gipuzkoa', '48 Vizcaya')]
+colnames(original) <- c('date', 'Alava', 'Gipuzkoa', 'Vizcaya')
+original$date <- as.Date(paste(original$date, "01", sep = "-"), "%YM%m-%d")
+original$total <- original$Alava + original$Gipuzkoa + original$Vizcaya
+data <- original[c('date', 'total')]
+```
+
+
+```{r}
+data.train <- subset(data, year(data$date) != 2019)
+data.test <- subset(data, year(data$date) == 2019)
+data.train.ts <- as.ts(data.train$total, frequency = 12)
+data.test.ts <- as.ts(data.test$total, frequency=12)
+```
+
+En el siguiente gráfico se observa que la serie no es estacionaria pues se evidencia que no es, al menos, estacionaria en media. Sin embargo, comprobemos las hipótesis de estacionalidad de manera analítica.
+
+
+```{r}
+ggplot(aes(x= date, y = total), data = data.train) +
+  geom_line(color = '#d84519', size = 1) + 
+  xlab('FECHA') + ylab('Hipotecas')
+
+```
+
+## Modelos
+
+Analicemos si la serie es estacionaria. Para que una serie sea estacionaria tiene que cumplir que:
+
+* Sea estacionaria en media
+* Sea estacionaria en varianza
+* Sea estacionaria en covarianza
+
+Inicialmente analizaremos si la serie es estacionaria en varianza. Se evalúa la necesidad de transformar la serie para hacerla estacionaria en varianza. 
+
+```{r}
+box_cox <- boxcox(total ~ date,
+                  data = data.train,
+                  lambda = c(0, 0.5, 1))
+
+```
+```{r}
+lambda <- box_cox$x[which.max(box_cox$y)]
+lambda
+```
+Al obtener un lambda cercano a 0.065 no se puede afirmar que el modelo ...
+
+
+```{r}
+
+data.train$exp_total = data.train$total**lambda
+data.test$exp_total = data.test$total**lambda
+data.train.ts <- as.ts(data.train$exp_total, frequency = 12)
+data.test.ts <- as.ts(data.test$exp_total, frequency=12)
+```
+
+
+```{r}
+ggplot(aes(x= date, y = exp_total), data = data.train) +
+  geom_line(color = '#d84519', size = 1) + 
+  xlab('FECHA') + ylab('Exp_Hipotecas')
+
+```
+```{r}
+box_cox <- boxcox(exp_total ~ date,
+                  data = data.train,
+                  lambda = c(0, 0.5, 1))
+
+```
+```{r}
+lambda <- box_cox$x[which.max(box_cox$y)]
+lambda
+```
+
+```
+
+
+
+
+Verifiquemos si el modelo es estacionario en media
+
+```{r}
+adf.test(data.train.ts)
+```
+Al aplicar el test de Dickey-Fuller se obtiene un p-value alto, por lo que no se puede rechazar la hipótesis nula y esto sugiere que podría ser necesaria una diferencia regular.
+
+```{r}
+
+```
+
+## Ajuste de un modelo ARIMA
+
+Para decidir el mejor modelo, se visualizan las gráficos de las autocorrelaciones simple y parcial
+
+```{r}
+
+acf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
+    main= "Función de autocorrelacion simple")
+```
+```{r}
+pacf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion parcial")
+
+```
+
+
+
+
+
+
