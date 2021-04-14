@@ -26,7 +26,7 @@ library(caschrono)
 ```
 
 
-```{r cars}
+```{r cars, message=FALSE}
 original <- readxl::read_xlsx("./data/Hipotecas.xlsx")
 original <- original[c('...1', '01 Álava', '20 Gipuzkoa', '48 Vizcaya')]
 colnames(original) <- c('date', 'Alava', 'Gipuzkoa', 'Vizcaya')
@@ -109,6 +109,8 @@ pacf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
 
 Por esta razón se propone como modelo inicial un AR(1)
 
+### Modelo 1
+
 ```{r}
 
 fit.1 <- Arima(data.train.ts,
@@ -146,8 +148,7 @@ acf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
 ```
 Se puede observar cierta simetría lo que indica que hay una parte regular que va asociada a los instantes inmediatamente anteriores y una parte estacional que va asociada a los mismos instantes pero retardados ese período de tiempo -> SARIMA multiplicativo.
 
-Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 12
-
+Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 4
 
 ```{r}
 pacf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
@@ -155,6 +156,7 @@ pacf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
 ```
 El palito más sobresaliente de la banda es el 1 lo cual sugiere un modelo AR(1)
 
+### Modelo 2
 
 ```{r}
 fit.2 <- Arima(data.train.ts,
@@ -168,6 +170,22 @@ fit.2
 ```{r}
 coeftest(fit.2)
 ```
+
+```{r}
+cor.arma(fit.2)
+```
+```{r}
+acf(fit.2$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+```
+```{r}
+pacf(fit.2$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion parcial")
+
+```
+
+
+
 
 
 Si en em AM1 la suma de los parámetros es cercana a 1 eso indica que se viola la condición de invertibilidad lo que se traduce en que los datos remotos tienen mayor peso que los datos más recientes.
