@@ -11,8 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introducción
 
-El dataset describe el comportamiento de la contratación de hipotecas en España desde 2003 hasta 2019.
-
+El dataset describe el comportamiento de la contratación de hipotecas en España desde 2003 hasta 2019. El objetivo es desarrollar un modelo de series temporales ...
 
 ```{r echo=FALSE, message=FALSE}
 library(lubridate)
@@ -23,6 +22,8 @@ library(lmtest)
 library(MASS)
 library(forecast)
 library(caschrono)
+library(timeDate)
+library(tsoutliers)
 ```
 
 
@@ -100,13 +101,14 @@ pacf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
 
 ```
-La imagen sugiere, de momento, que el orden de la parte autorregresiva puede ser 1 porque es la línea que más sobresale. Por esta razón, se propone como modelo inicial un AR(1).
+La imagen sugiere, de momento, que el orden de la parte autorregresiva puede ser 1 porque es la línea que más sobresale. Por esta razón, se propone como modelo inicial un AR(1). Como es una serie mensual el periodo será 12.
 
 ### Modelo 1: AR(1)
 
 ```{r}
 fit.1 <- Arima(data.train.ts,
                order = c(1, 0, 0),
+               seasonal = list(order=c(0,0,0), period = 12),
                method = 'ML')
 
 fit.1
@@ -128,14 +130,14 @@ Box.test.2(residuals(fit.1),
 Comprobemos la afirmación anterior a través de las gráficas de autocorrelacion. Efectivamente, en la siguiente figura, se puede observar que la serie no cumple la hipótesis de ruido blanco.
 
 ```{r}
-acf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
+acf(fit.1$residuals, lag.max = 100, xlab = "Hipotecas",
     main= "Función de autocorrelacion simple")
 ```
 Se puede observar cierta simetría lo que indica que hay una parte regular que va asociada a los instantes inmediatamente anteriores y una parte estacional que va asociada a los mismos instantes pero retardados ese período de tiempo -> SARIMA multiplicativo.
-Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 4, por lo tanto tenemos un MA infinito en los múltiplos de 4 por lo cual es un AR finito en los múltiplos de 4. Para determinar el orden de la p dibujamos nuevamente en gráfico de autocorrelación parcial.
+Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 4, por lo tanto tenemos un MA infinito en los múltiplos de 4 por lo cual es un AR finito. Para determinar el orden de la p dibujamos nuevamente en gráfico de autocorrelación parcial.
 
 ```{r}
-pacf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
+pacf(fit.1$residuals, lag.max = 100, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
 ```
 El palito más sobresaliente de la banda es el 1 lo cual sugiere un modelo AR(1)
@@ -165,63 +167,84 @@ Al analizar las correlaciones, se puede notar que no existe una alta correlació
 Box.test.2(residuals(fit.2),
            nlag = c(6, 12, 18, 24, 30, 36, 48))
 
-acf(fit.2$residuals, lag.max = 72, xlab = "Hipotecas",
+acf(fit.2$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
 
 ```
-Las autocorrelaciones indican que los 6 primeros no son cero, por lo tanto no existe aún ruido blanco. Esto se reafirma si analizamos la gráfico de correlación simple. La máxima autocorrelación simple distinta de 0 determina el orden de MA, por eso en este caso se puede sugerir un modelo MA(1). Como se trata de un MA finito no es necesario analizar la autocorrelación parcial y pasamos directamente a un nuevo modelo.
+Las autocorrelaciones indican que los 6 primeros no son cero, por lo tanto no existe aún ruido blanco. Esto se reafirma si analizamos la gráfico de correlación simple. La máxima autocorrelación simple distinta de 0 determina el orden de MA, por eso en este caso se puede sugerir un modelo MA(1) en la parte regular. Como se trata de un MA finito no es necesario analizar la autocorrelación parcial y pasamos directamente a un nuevo modelo.
 
-## Modelo 3: SARIMA(1,0,0)(1, 0, 1)[12]
+### Modelo 3: SARIMA(1,0,1)(1, 0, 0)[12]
 
 ```{r}
 fit.3 <- Arima(data.train.ts,
-               order = c(1, 0, 0),
-               seasonal = list(order = c(1, 0, 1), period=12),
+               order = c(1, 0, 1),
+               seasonal = list(order = c(1, 0, 0), period=12),
                method = 'ML')
 
 fit.3
 
 coeftest(fit.3)
 ```
-La suma es diferente de 1 en todos los parámetros, pero no todos son significativos como es el caso de SMA(1) por lo que no se cumple la hipótesis de invertibilidad, lo que se traduce en que los datos remotos tienen mayor peso que los datos más recientes. Esta condición es deseable pero no necesaria para el de modelos ARMA.
-
-Al analizar la matriz de correlación también aparece una alta correlación entre SAM(1) y SAR(1).
+En este caso todos los parámetros son significativos, sin embargo, el 1 pertenece al intervalo de confianza del parámetro AR(1) lo que indica que no se está cumpliendo la condición de estacionalidad y es necesario aplicar una diferencia y quitar el AR(1). De todas formas, analicemos la correlación y la hipótesis de ruido blanco. 
 
 ```{r}
 cor.arma(fit.3)
 ```
-Analicemos los gráficos de autocorrelación. Se observa que al incluir un MA(1) no se logra obtener ruido blanco.
+No hay alta correlación entre los parámetros.
 
 ```{r}
-
 Box.test.2(residuals(fit.3),
            nlag = c(6, 12, 18, 24, 30, 36, 48))
 
-acf(fit.3$residuals, lag.max = 72, xlab = "Hipotecas",
+acf(fit.3$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
 
-```
-En la gráfica de autocorrelación simple otra vez sobre sale el palito correspondiente al 1, pero no podemos agregar un AM(1) porque ya lo tenemos incluido. Analicemos el gráfico de correlación parcial.
-
-```{r}
 pacf(fit.3$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
+
 ```
-Nuevamente sale AR(1), intentemos con un AR(4)
 
+Al analizar las autocorrelacionesse puede notar que ya estamos en presencia de ruido blanco, como muestra también la gráfica de autocorrelación simple. Apliquemos una diferencia en la parte regular, como habíamos determinado anteriormente, para cumplir la hipótesis de estacionalidad.
 
-## Modelo 4: SARIMA(1,0,0)(1, 1, 0)[12]
+### Modelo 4: SARIMA(0, 1, 1)x(1,0,0)[12]
 
 ```{r}
 
 fit.4 <- Arima(data.train.ts,
-               order = c(1, 0, 0),
-               seasonal = list(order = c(4, 0, 1), period=4),
+               order = c(0, 1, 1),
+               seasonal = list(order = c(1, 0, 0), period=12),
                method = 'ML')
 fit.4
 
 coeftest(fit.4)
 ```
+Al aplicar la diferencia, se ha eliminado la constante. Comprobemos si realmente la constante no es significtiva.
+
+```{r}
+
+fit.4 <- Arima(data.train.ts,
+               include.constant = T,
+               order = c(0, 1, 1),
+               seasonal = list(order = c(1, 0, 0), period=12),
+               method = 'ML')
+fit.4
+
+coeftest(fit.4)
+```
+Al inlcuir la constante, el p-valor de la misma es 0.5 por lo que efectivamente no era significativa y lo podemos quitar nuevamente.
+
+```{r}
+fit.4 <- Arima(data.train.ts,
+               order = c(0, 1, 1),
+               seasonal = list(order = c(1, 0, 0), period=12),
+               method = 'ML')
+fit.4
+
+coeftest(fit.4)
+
+```
+Todos los parámetros son significativos y la suma no es cercana a 1, por lo tanto se vuelve a cumplir la hipótesis de estacionalidad y en el caso de MA(1) también se cumple la invertibilidad que aunque no es necesaria para ajustar un modelo ARMA sí es deseable pues de no cumplirse indica que se lee stá dado más pesos a los datos remotos que a los más cercanos.
+
 ```{r}
 cor.arma(fit.4)
 ```
@@ -233,138 +256,544 @@ Box.test.2(residuals(fit.4),
 acf(fit.4$residuals, lag.max = 72, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
 ```
+Al analizar el gráfico de autocorrelación simple y analizar las correlaciones se puede decir que ya estamos en presencia de ruido blanco. Sin embargo, aún existen unos pocos palitos que se salen de las bandas como el 19, 32, entre otros. Como no se observa un criterio evidente que permita corregir este hecho pasaremos a incluir variables explicativas.
 
-```{r}
-pacf(fit.4$residuals, lag.max = 48, xlab = "Hipotecas",
-     main = "Funcion de autocorrelacion parcial")
-```
-Aún no obtenemos ruido blanco, intentemos diferenciar.
-
-## Modelo 5: 
-
-
-```{r}
-
-fit.5 <- Arima(data.train.ts,
-               order = c(1, 1, 0),
-               seasonal = list(order = c(1, 0, 1), period=12),
-               method = 'ML')
-fit.5
-
-coeftest(fit.5)
-
-```
-```{r}
-Box.test.2(residuals(fit.5),
-           nlag = c(6, 12, 18, 24, 30, 36, 48))
-
-acf(fit.5$residuals, lag.max = 48, xlab = "Hipotecas",
-     main = "Funcion de autocorrelacion simple")
-```
- ## Modelo 6: 
- 
-```{r}
-
-fit.6 <- Arima(data.train.ts,
-               order = c(1, 1, 0),
-               seasonal = list(order = c(0, 1, 1), period=12),
-               method = 'ML')
-fit.6
-
-coeftest(fit.6)
-```
-
-
-```{r}
-Box.test.2(residuals(fit.6),
-           nlag = c(6, 12, 18, 24, 30, 36, 48))
-
-acf(fit.6$residuals, lag.max = 48, xlab = "Hipotecas",
-     main = "Funcion de autocorrelacion simple")
-```
-
-```{r}
-pacf(fit.6$residuals, lag.max = 48, xlab = "Hipotecas",
-     main = "Funcion de autocorrelacion parcial")
-```
-## Modelo 7:
-
-```{r}
-
-fit.7 <- Arima(data.train.ts,
-               order = c(1, 1, 0),
-               seasonal = list(order = c(1, 1, 2), period=4),
-               method = 'ML')
-fit.7
-
-coeftest(fit.7)
-
-Box.test.2(residuals(fit.7),
-           nlag = c(6, 12, 18, 24, 30, 36, 48))
-
-acf(fit.7$residuals, lag.max = 48, xlab = "Hipotecas",
-     main = "Funcion de autocorrelacion simple")
-
-pacf(fit.7$residuals, lag.max = 48, xlab = "Hipotecas",
-     main = "Funcion de autocorrelacion parcial")
-```
 
 ## Análisis de intervenciones
 
+En una serie mensual hay tres efectos importantes que reflejar. El efecto de calendario consiste en reflejar en el modelo la diferencia entre los días festivos y laborables que hay en un mes. Además, se deben tener en cuenta los días de Semana Santa y de los años bisiestos. A continuación se definen unas funciones que permiten reflejar estos factores en el análisis de la serie.
+
 ```{r}
-calendar <- data
+calculoExplicativasCalendario <- function(variableFecha, domingoYFestivosJuntos){
+  
+  #######################################
+  #     Creaci?n de todas las fechas    #
+  #######################################
+  
+  # Se crean las fechas a nivel diario entre una primera y una ?ltima fecha dada.
+  # Para llegar al ?ltimo d?a del mes de la ?ltima fecha, se suman d?as para llegar
+  # al 28/29, 30 o 31 seg?n proceda.
+  
+  if (month(max(variableFecha)) %in% c(1,3,5,7,8,10,12)) {
+    diasHastaFinMes <- 30
+  } else if (month(max(variableFecha)) %in% c(4,6,9,11)) {
+    diasHastaFinMes <- 29
+  } else if (year(max(variableFecha))%%4==0) {
+    diasHastaFinMes <- 28
+  } else {diasHastaFinMes <- 27}
+  
+  todasLasFechas <- data.frame(fechas=seq(min(variableFecha),
+                                          max(variableFecha)+diasHastaFinMes,
+                                          by="days"))
+  
+  domingoResurrecion <- as.Date(Easter(year(min(variableFecha)):year(max(variableFecha))))
+  lunesPascua <- domingoResurrecion+1
+  sabadoSanto <- domingoResurrecion-1
+  viernesSanto <- domingoResurrecion-2
+  juevesSanto <- domingoResurrecion-3
+  
+  # Se unen y ordenan todos los d?as que forman la Semana Santa
+  semanaSanta <- sort(c(juevesSanto, viernesSanto, sabadoSanto, domingoResurrecion, lunesPascua))
+  
+  # Se pone en formato data.frame y se a?ade un indicador
+  semanaSanta <- data.frame(fechas=semanaSanta, semanaSanta=rep(1,length(semanaSanta)))
+  
+  # Se a?aden a la tabla maestra de fechas
+  todasLasFechas_2 <- merge(x = todasLasFechas, y = semanaSanta, by = "fechas", all.x = TRUE)
+  
+  # Se reemplazan los NAs por 0, terminando de definir as? el indicador de SemanaSanta
+  todasLasFechas_2$semanaSanta[is.na(todasLasFechas_2$semanaSanta)] <- 0
+  
+  ######################################
+  #     CAlculo de la variable dt      #
+  ######################################
+  
+  # 1. Definici?n de festivos:
+  ############################
+  
+  calendario <- todasLasFechas
+  
+  calendario$diaSemana <- as.factor(wday(calendario$fecha))
+  calendario$diaMes <- as.factor(day(calendario$fecha))
+  calendario$mes <- as.factor(month(calendario$fecha))
+  calendario$anyo <- as.factor(year(calendario$fecha))
+  
+  calendario$p_01ene <- ifelse(calendario$diaMes==1 & calendario$mes==1, 1, 0)
+  calendario$p_06ene <- ifelse(calendario$diaMes==6 & calendario$mes==1, 1, 0)
+  calendario$p_19mar <- ifelse(calendario$diaMes==19 & calendario$mes==3, 1, 0)
+  calendario$p_01may <- ifelse(calendario$diaMes==1 & calendario$mes==5, 1, 0)
+  calendario$p_15ago <- ifelse(calendario$diaMes==15 & calendario$mes==8, 1, 0)
+  calendario$p_12oct <- ifelse(calendario$diaMes==12 & calendario$mes==10,1, 0)
+  calendario$p_01nov <- ifelse(calendario$diaMes==1 & calendario$mes==11, 1 ,0)
+  calendario$p_06dic <- ifelse(calendario$diaMes==6 & calendario$mes==12, 1 ,0)
+  calendario$p_08dic <- ifelse(calendario$diaMes==8 & calendario$mes==12, 1 ,0)
+  calendario$p_25dic <- ifelse(calendario$diaMes==25 & calendario$mes==12, 1 ,0)
+  
+  calendario$festivo <- rowSums(subset(calendario, select=p_01ene:p_25dic))
+  
+  # La definici?n de la variable dt var?a seg?n la opci?n domingoYFestivosJuntos.
+  
+  if (domingoYFestivosJuntos==0){
+    
+    calendario$sabado <- ifelse(calendario$diaSemana==7, 1 ,0)
+    calendario$domingo <- ifelse(calendario$diaSemana==1, 1 ,0)
+    
+    # D?as laborables: todos menos s?bados y domingos
+    calendario$laborable <- 1-calendario$sabado-calendario$domingo
+    
+  } else {
+    
+    calendario$sabado <- ifelse(calendario$diaSemana==7, 1 ,0)
+    calendario$domingo <- ifelse(calendario$diaSemana==1, 1 ,0)
+    # Domingo=1 si domingo=1 o festivo=1
+    calendario$domingo <- ifelse(calendario$domingo==1 | calendario$festivo==1, 1 ,0)
+    
+    # D?as laborables: todos menos s?bados y domingos/festivos
+    calendario$laborable <- 1-calendario$sabado-calendario$domingo    
+  }
+  # 2. Definici?n de variable dt:
+  ###############################
+  
+  # Se filtran las columnas de inter?s y se a?ade la Semana Santa
+  
+  calendario_2 <- calendario[, c("fechas", "mes", "anyo", "sabado", "domingo", "laborable", "festivo")]
+  
+  todasLasFechasFinal <- merge(x = todasLasFechas_2, y = calendario_2,
+                               by = "fechas", all.x = TRUE)
+  
+  # Agregamos la serie a nivel a?o-mes
+  
+  calendarioAnyoMes <- aggregate(todasLasFechasFinal[,c("sabado","domingo",
+                                                        "laborable", "semanaSanta", "festivo")],
+                                 by=list(mes=todasLasFechasFinal$mes,
+                                         anyo=todasLasFechasFinal$anyo),
+                                 "sum")
+  
+  # Se calcula la variable dt:
+  
+  calendarioAnyoMes$dt <- calendarioAnyoMes$laborable-(5/2)*(calendarioAnyoMes$sabado+calendarioAnyoMes$domingo)
+  
+  
+  ######################################
+  #     C?lculo de a?os bisiestos      #
+  ######################################
+  
+  calendarioAnyoMes$anyoNum <- as.numeric(levels(calendarioAnyoMes$anyo))[calendarioAnyoMes$anyo]
+  
+  calendarioAnyoMes$bisiesto <- ifelse(calendarioAnyoMes$mes==2 &(calendarioAnyoMes$anyoNum %% 4)==0, 1 ,0)
+  
+  
+  #######################################################
+  #     Tabla final con explicativas de calendario      #
+  #######################################################
+  
+  if (domingoYFestivosJuntos==0){
+    explicativasCalendario <- cbind(fecha=variableFecha, calendarioAnyoMes[, c("semanaSanta", "dt", "bisiesto", "festivo")])
+  } else {
+    explicativasCalendario <- cbind(fecha=variableFecha, calendarioAnyoMes[, c("semanaSanta", "dt", "bisiesto")])
+  }
+  
+  return(explicativasCalendario)
+  
+}
+```
 
-calendar$weekday <- wday(calendar$date)
-calendar$day <- day(calendar$date)
-calendar$month <- month(calendar$date)
+La variable dt representa la variable calendario que si es positiva es el número de días festivos de más que tiene respecto a un mes perfecto (como febrero) y si es negativa el número días de menos respecto a un mes perfecto. Intentemos solamente con el calendario, los días de semanas santa y si el año es bisiesto o no.
 
-# Se definen los festivos nacionales
+```{r}
 
-calendar$p_01ene <- ifelse(calendar$day==1 & calendar$month==1, 1, 0)
-calendar$p_06ene <- ifelse(calendar$day==6 & calendar$month==1, 1, 0)
-calendar$p_19mar <- ifelse(calendar$day==19 & calendar$month==3, 1, 0)
-calendar$p_01may <- ifelse(calendar$day==1 & calendar$month==5, 1, 0)
-calendar$p_15ago <- ifelse(calendar$day==15 & calendar$month==8, 1, 0)
-calendar$p_12oct <- ifelse(calendar$day==12 & calendar$month==10,1, 0)
-calendar$p_01nov <- ifelse(calendar$day==1 & calendar$month==11, 1 ,0)
-calendar$p_06dic <- ifelse(calendar$day==6 & calendar$month==12, 1 ,0)
-calendar$p_08dic <- ifelse(calendar$day==8 & calendar$month==12, 1 ,0)
-calendar$p_25dic <- ifelse(calendar$day==25 & calendar$month==12, 1 ,0)
+exp.calendar.train <- calculoExplicativasCalendario(data.train$date,domingoYFestivosJuntos=0)
 
-variables <- names(calendar) %in% c("weekday", "day", "month") 
-calendar <- calendar[!variables]
-calendar.train <- subset(calendar, year(date) != 2019) 
-calendar.train <- as.matrix(calendar[,2:ncol(calendar.train)])
-names(as.data.frame(calendar))
-
-calendar.validate <- subset(calendar, year(date) == 2019)
-calendar.validate <- as.matrix(calendar.validate[,2:ncol(calendar.validate)])
+calendar.train <- 
+  as.matrix(
+    exp.calendar.train[,c("semanaSanta", "dt", "bisiesto")])
 
 ```
 
-### Modelo 8
+
+### Modelo 5: ARIMA(0, 1, 1)x(1,0,0)[12] + calendario
 
 ```{r}
 
-fit.8 <- Arima(data.train.ts,
-               order = c(1, 1, 0),
-               seasonal = list(order = c(1, 1, 2), period=4),
-               method = 'ML',
-               xreg = calendar.train[,3:12])
-fit.8
+fit.calendar <- Arima(data.train.ts,
+               order = c(0, 1, 1),
+               seasonal = list(order = c(1, 0, 0), period=12),
+               xreg = calendar.train,
+               method = 'ML')
+fit.calendar
 
-coeftest(fit.8)
+coeftest(fit.calendar)
+```
+El hecho de que la variable calendario (dt) sea positiva indica, como es de esperar, que cuanto más días laborables más contratos de hipotecas. Miestras más días de Semana Santa haya en un mes, se realizan menos contrataciones. Todas las variables son significativas excepto la relativa a los años bisiestos, sin embrago, al ser positiva no afecta mucho al modelo y tiene sentido incluirla, porque si un año tiene un días más, es un día más donde se pueden comprar hipotecas. 
 
-Box.test.2(residuals(fit.8),
+
+Analicemos la correlación entre los parámetros.
+
+```{r}
+cor.arma(fit.calendar)
+
+```
+La matriz de correlación no muestra que exista una correlación especialmente alta entre ningún par de parámetros. Analicemos si se cumple la hipótesis de ruido blanco.
+
+```{r}
+Box.test.2(residuals(fit.calendar),
            nlag = c(6, 12, 18, 24, 30, 36, 48))
+```
+Los p-values se han mantenido altos (mayores que 0,05) por lo que existe ruido blanco. Confirmemos mediante las gráficas de autocorrelación.
 
-acf(fit.8$residuals, lag.max = 48, xlab = "Hipotecas",
+
+```{r}
+acf(fit.calendar$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
+```
+Al observar la gráfica de autocorrelación simple se puede notar que sí existe ruido blanco tal como indicaban las correlaciones. 
 
-pacf(fit.8$residuals, lag.max = 48, xlab = "Hipotecas",
-     main = "Funcion de autocorrelacion parcial")
+
+## Identificación de *outliers*
+
+A continuación se analizan los casos atípicos del modelo seleccionado.
+
+```{r}
+outliers.train <- locate.outliers(fit.calendar$residuals,
+                                      pars = coefs2poly(fit.calendar),
+                                      types = c("AO", "LS", "TC"),cval=3)
+
+outliers.train$abststat=abs(outliers.train$tstat)
+```
+
+Los outliers de tipo AO son comparables a un impulso y afectan a la serie solamente en un momento puntual. Los outliers de tipo LS implican un cambio de nivel en la serie y los TC producen un cambio transitorio. Asociemos los outliers identificados con el mes que le corresponden para facilitar la interpretación.
+
+```{r}
+data.train$ind <- as.numeric(row.names(data.train))
+outliers.train.date <- merge(outliers.train, data.train[,c('ind', 'date')],  by = "ind")
+arrange(outliers.train.date,desc(outliers.train.date$abststat))
+```
+
+El outlier más significativo está asociado un tipo LS (cambio de nivel) que se produjo en junio de 2011. Lo siguiente más importantes son impulsos puntuales en mayo de 2006, febrero de 2005 y febrero de 2015. Seguidos de otro cambio de nivel en abril de 2013 y un cambio transitorio en julio de 2011. En este caso, como ya hemos obtenido un modelo con ruido blanco, y los outliers no tienen una interpretación evidente no serán incluidos en el modelo.
+
+
+## Predicciones
+
+Adicionamos las variables explicativas  aplicadas anteriormente al conjunto de entrenamiento al conjunto de test.
+
+
+```{r}
+
+exp.calendar.test <- calculoExplicativasCalendario(data.test$date,domingoYFestivosJuntos=0)
+
+calendar.test <- 
+  as.matrix(
+    exp.calendar.test[,c("semanaSanta", "dt", "bisiesto")])
+```
+
+
+```{r}
+preds <- as.data.frame(predict(fit.calendar, n.ahead=12, newxreg=calendar.test))
+```
+
+### Límites de confianza al 95%
+
+```{r}
+
+U <- (preds$pred + 2*preds$se)**(1/lambda)
+L <- (preds$pred - 2*preds$se)**(1/lambda)
 
 ```
+
+```{r}
+data.pred <- data.frame(date = data.test$date, pred = (preds$pred)**(1/lambda),
+                         LimSup = U, LimInf =L)
+data.real <- merge(data[,c("date","total")], data.pred, by = "date", all.x = T)
+
+```
+
+
+### Gráfico Real vs. Predicción
+
+En el siguiente gráfico se dibujan los valores reales y las predicciones sobre el conjunto de test, que corresponde al último período de la serie que es el año 2019.
+
+```{r}
+
+grafico1 <- ggplot(data = data.real) +
+  geom_line(aes(x= date, y = total), color = 'steelblue',
+            alpha = 0.8, size = 1) +
+  geom_line(aes(x= date, y = pred), color = 'darkred',
+            alpha = 0.9, linetype = 2, size = 1) + 
+  xlab('FECHA') + ylab('Hipotecas')
+
+ggplotly(grafico1)
+```
+
+### Gráfico Real + Predicción + Límites
+
+En el siguiente gráfico se dibujan los valores reales, las predicciones y los intervalos de confianza.
+
+```{r message=FALSE, warning=FALSE}
+
+data.real$pred[year(data.real$date) != 2019] <- NA
+
+grafico2 <- ggplot(data = data.real) +
+  geom_line(aes(x= date, y = total), color = 'steelblue',
+            alpha = 0.8, size = 0.8) +
+  geom_line(aes(x= date, y = pred), color = 'darkred',
+            size = 1)   +
+  geom_line(aes(x= date, y = LimSup), color = 'orange',
+            size = 1)  +
+  geom_line(aes(x= date, y = LimInf), color = 'orange',
+            size = 1) +
+  xlab('FECHA') + ylab('Hipotecas')
+
+grafico2
+```
+En la siguiente sección se comparan las predicciones que se obtendrían ajustando automáticamente un modelo a cada una de las provincias que integran la comunidad autónoma y sumando las predicciones que cada uno de ellos genera.
+
+## Ajuste automático
+
+### Provincia Alava
+
+```{r}
+data.alava.train <- subset(original, year(original$date) != 2019)[c('date', 'Alava')]
+data.alava.test <- subset(original, year(original$date) == 2019)[c('date', 'Alava')]
+
+data.alava.train$exp <- data.alava.train$Alava**lambda
+data.alava.test$exp <- data.alava.test$Alava**lambda
+
+data.alava.train.ts <- as.ts(data.alava.train$exp)
+data.alava.test.ts <- as.ts(data.alava.test$exp)
+
+exp.calendar.alava.train <- calculoExplicativasCalendario(data.alava.train$date,domingoYFestivosJuntos=0)
+exp.calendar.alava.test <- calculoExplicativasCalendario(data.alava.test$date, domingoYFestivosJuntos = 0)
+
+calendar.alava.train <- 
+  as.matrix(
+    exp.calendar.alava.train[,c("semanaSanta", "dt", "bisiesto")])
+
+calendar.alava.test <- 
+  as.matrix(
+    exp.calendar.alava.test[,c("semanaSanta", "dt", "bisiesto")])
+
+
+alava.fit <- auto.arima(data.alava.train.ts,
+                               max.d=1, max.D=1,
+                               max.p=2, max.P=2,
+                               max.q=2, max.Q=2, 
+                               seasonal=TRUE,
+                               ic="aic",
+                               allowdrift=FALSE,
+                               xreg=calendar.alava.train,
+                               stepwise=TRUE)
+
+
+alava.preds <- as.data.frame(predict(alava.fit, n.ahead=12, newxreg=calendar.alava.test))
+
+```
+
+### Provincia Gipuzkoa
+
+```{r}
+
+data.gipuzkoa.train <- subset(original, year(original$date) != 2019)[c('date', 'Gipuzkoa')]
+data.gipuzkoa.test <- subset(original, year(original$date) == 2019)
+
+data.gipuzkoa.train$exp <- data.gipuzkoa.train$Gipuzkoa**lambda 
+data.gipuzkoa.test$exp <- data.gipuzkoa.test$Gipuzkoa**lambda
+
+data.gipuzkoa.train.ts <- as.ts(data.gipuzkoa.train$exp, frequency = 12)
+data.gipuzkoa.test.ts <- as.ts(data.gipuzkoa.test$exp, frequency = 12)
+
+exp.calendar.gipuzkoa.train <- calculoExplicativasCalendario(data.gipuzkoa.train$date,domingoYFestivosJuntos=0)
+exp.calendar.gipuzkoa.test <- calculoExplicativasCalendario(data.gipuzkoa.test$date, domingoYFestivosJuntos = 0)
+
+calendar.gipuzkoa.train <- 
+  as.matrix(
+    exp.calendar.gipuzkoa.train[,c("semanaSanta", "dt", "bisiesto")])
+
+calendar.gipuzkoa.test <- 
+  as.matrix(
+    exp.calendar.gipuzkoa.test[,c("semanaSanta", "dt", "bisiesto")])
+
+
+gipuzkoa.fit <- auto.arima(data.gipuzkoa.train.ts,
+                               max.d=1, max.D=1,
+                               max.p=2, max.P=2,
+                               max.q=2, max.Q=2, 
+                               seasonal=TRUE,
+                               ic="aic",
+                               allowdrift=FALSE,
+                               xreg=calendar.gipuzkoa.train,
+                               stepwise=TRUE)
+
+
+gipuzkoa.preds <- as.data.frame(predict(gipuzkoa.fit, n.ahead=12, newxreg=calendar.gipuzkoa.test))
+```
+
+### Provincia Vizcaya
+
+```{r}
+
+data.vizcaya.train <- subset(original, year(original$date) != 2019)[c('date', 'Vizcaya')]
+data.vizcaya.test <- subset(original, year(original$date) == 2019)[c('date', 'Vizcaya')]
+
+data.vizcaya.train$exp <- data.vizcaya.train$Vizcaya**lambda 
+data.vizcaya.test$exp <- data.vizcaya.test$Vizcaya**lambda
+
+data.vizcaya.train.ts <- as.ts(data.vizcaya.train$exp, frequency = 12)
+data.vizcaya.test.ts <- as.ts(data.vizcaya.test$exp, frequency = 12)
+
+exp.calendar.vizcaya.train <- calculoExplicativasCalendario(data.vizcaya.train$date,domingoYFestivosJuntos=0)
+exp.calendar.vizcaya.test <- calculoExplicativasCalendario(data.vizcaya.test$date, domingoYFestivosJuntos = 0)
+
+calendar.vizcaya.train <- 
+  as.matrix(
+    exp.calendar.vizcaya.train[,c("semanaSanta", "dt", "bisiesto")])
+
+calendar.vizcaya.test <- 
+  as.matrix(
+    exp.calendar.vizcaya.test[,c("semanaSanta", "dt", "bisiesto")])
+
+
+vizcaya.fit <- auto.arima(data.vizcaya.train.ts,
+                               max.d=1, max.D=1,
+                               max.p=2, max.P=2,
+                               max.q=2, max.Q=2, 
+                               seasonal=TRUE,
+                               ic="aic",
+                               allowdrift=FALSE,
+                               xreg=calendar.vizcaya.train,
+                               stepwise=TRUE)
+
+viscaya.preds <- as.data.frame(predict(vizcaya.fit, n.ahead=12, newxreg=calendar.vizcaya.test))
+
+```
+
+Sumando las predicciones de cada provincia de la comunidad
+
+
+```{r}
+
+data.pred.alava <- data.frame(date = data.test$date, pred = (alava.preds$pred)**(1/lambda))
+data.pred.gipuzkoa <- data.frame(date = data.test$date, pred = (gipuzkoa.preds$pred)**(1/lambda))
+data.pred.viscaya <- data.frame(date = data.test$date, pred = (viscaya.preds$pred)**(1/lambda))
+
+data.pred.sum <- data.frame(date = data.test$date, pred_sum = (data.pred.alava$pred + data.pred.gipuzkoa$pred + data.pred.viscaya$pred)) 
+all.preds <- merge(data.real, data.pred.sum, by = "date", all.x = T)
+
+```
+
+
+En el siguente gráfico se presentan los valores reales (color azul), predicciones (color rojo) y las predicciones resultantes de la suma (línea verde).  
+
+```{r}
+
+grafico3 <- ggplot(data = all.preds) +
+  geom_line(aes(x= date, y = total), color = 'steelblue',
+            alpha = 0.8, size = 1) +
+  geom_line(aes(x= date, y = pred), color = 'darkred',
+            alpha = 0.9, linetype = 2, size = 1) + 
+  geom_line(aes(x= date, y=pred_sum), color = '#52854C',
+            alpha = 0.9, linetype = 2, size = 1) +
+  xlab('FECHA') + ylab('Hipotecas')
+
+ggplotly(grafico3)
+```
+
+Visualmente se puede notar que la curva correpondiente al modelo ajustado ARIMA se aproxima más a los valores reales que el obtenido mediante auto.arima en los primeros meses de 2019, sin embargo, en los últimos meses nuestro primer modelo se aleja más que el modelo automático. Comprobemos esta hipótesis mediante el cálculo analítico de los errores. 
+
+## Cálculo de errores
+
+En esta sección se calcula el error de tres de los modelos presentados:
+
+* SARIMA(0, 1, 1)x(1,0,0)[12]
+* SARIMA(0, 1, 1)x(1,0,0)[12] + calendario
+* AUTOARIMA
+
+
+### Error in-sampling
+
+```{r}
+
+preds.arima <- as.data.frame(fit.4$fitted)**(1/lambda)
+names(preds.arima) <- c("SARIMA(0, 1, 1)x(1,0,0)[12]")
+
+preds.calendar <- as.data.frame(fit.calendar$fitted)**(1/lambda)
+names(preds.calendar) <- c("SARIMA(0, 1, 1)x(1,0,0)[12] + calendario")
+
+preds.sum <- as.data.frame(alava.fit$fitted)**(1/lambda) + as.data.frame(gipuzkoa.fit$fitted)**(1/lambda) + as.data.frame(vizcaya.fit$fitted)**(1/lambda)
+names(preds.sum) <- c("AUTOARIMA")
+
+real_predictions <- cbind(data.train,preds.sarima, preds.calendar, preds.sum)
+
+real_predictions$monthly.MAPE.sarima <- abs(100*(real_predictions$total - 
+                                                   real_predictions$`SARIMA(0, 1, 1)x(1,0,0)[12]`)/real_predictions$total)
+
+
+real_predictions$monthly.MAPE.calendar <- abs(100*(real_predictions$total - 
+                                                   real_predictions$`SARIMA(0, 1, 1)x(1,0,0)[12] + calendario`)/real_predictions$total)
+
+
+real_predictions$monthly.MAPE.autoarima <- abs(100*(real_predictions$total - 
+                                                   real_predictions$AUTOARIMA)/real_predictions$total)
+
+```
+
+Error global sobre histórico:
+
+```{r}
+global.MAPE.sarima <- mean(real_predictions$monthly.MAPE.sarima)
+global.MAPE.sarima
+
+global.MAPE.calendar <- mean(real_predictions$monthly.MAPE.calendar)
+global.MAPE.calendar
+
+globa.MAPE.autoarima <- mean(real_predictions$monthly.MAPE.autoarima)
+globa.MAPE.autoarima
+
+```
+### Error out-of-sampling
+
+```{r}
+preds <- all.preds[193:204,]
+preds_fit.4 <- as.data.frame(predict(fit.4, n.ahead=12)$pred)**(1/lambda)
+colnames(preds_fit.4) <- c("pred.arima")
+
+preds <- cbind(preds, preds_fit.4)
+colnames(preds) <- c("date", "real", "calendar.pred", "LimSup", "LimInf", "sum.pred", "sarima.pred")
+
+```
+
+
+```{r}
+
+preds$monthly.MAPE.sarima <- abs(100*(preds$real - preds$sarima.pred)/preds$real)
+preds$monthly.MAPE.sum <-  abs(100*(preds$real - preds$sum.pred)/preds$real)
+preds$monthly.MAPE.calendar <- abs(100*(preds$real - preds$calendar.pred)/preds$real)
+
+```
+
+
+Calculemos los errores sobre el conjunto de test
+
+```{r}
+
+test.MAPE.sarima <- mean(preds$monthly.MAPE.sarima)
+test.MAPE.sarima
+
+test.MAPE.sum <- mean(preds$monthly.MAPE.sum)
+test.MAPE.sum
+
+test.MAPE.calendar <- mean(preds$monthly.MAPE.calendar)
+test.MAPE.calendar
+
+```
+Al analizar los errores se puede observar que el modelo que menor error alcanza es el SARIMA(0, 1, 1)x(1,0,0)[12] incliyendo las varibles explicativas de calendario, tanto en el conjunto de test como en el conjunto de training.
+
+
+## Conclusiones
+
+En este trabajo se ha desarrollado ...
+
+
+
 
 
 
