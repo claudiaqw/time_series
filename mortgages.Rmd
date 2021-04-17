@@ -55,19 +55,17 @@ ggplot(aes(x= date, y = total), data = data.train) +
 
 ## Modelos
 
-Inicialmente analizaremos si la serie es estacionaria en varianza. Se evalúa la necesidad de transformar la serie para hacerla estacionaria en varianza a través de la transformación BoxCox.
+El objetivo es lograr que la serie sea estacionaria para que todos los instantes sean comparables. Inicialmente analizaremos si la serie es estacionaria en varianza. Se evalúa la necesidad de transformar la serie para hacerla estacionaria en varianza a través de la transformación BoxCox.
 
 ```{r}
 box_cox <- boxcox(total ~ date,
                   data = data.train,
                   lambda = c(0, 0.5, 1))
 
-```
-```{r}
 lambda <- box_cox$x[which.max(box_cox$y)]
 lambda
 ```
-El obtener un lambda cercano a 0.065 diferente de 1 indica que la serie no es estacionaria en varianza, por lo tanto, hay que aplicar una transformación   
+El obtener un lambda cercano a , diferente de 1, indica que la serie no es estacionaria en varianza, por lo tanto, hay que aplicar la transformación elevando la serie a lambda.  
 
 ```{r}
 
@@ -77,78 +75,64 @@ data.train.ts <- as.ts(data.train$exp_total, frequency = 12)
 data.test.ts <- as.ts(data.test$exp_total, frequency=12)
 ```
 
-Verifiquemos si el modelo es estacionario en media
+Verifiquemos si el modelo es estacionario en media a través del test Dickey-Fuller. 
 
 ```{r}
 adf.test(data.train.ts)
 ```
-Al aplicar el test de Dickey-Fuller se obtiene un p-value alto, por lo que no se puede rechazar la hipótesis nula y esto sugiere que podría ser necesaria una diferencia regular. En este caso, ya que el test aplicado no es .... tomar
-
-```{r}
-
-```
+Al aplicar el test de Dickey-Fuller se obtiene un p-value alto, por lo que no se puede rechazar la hipótesis nula y esto sugiere que podría ser necesaria una diferencia regular. En este caso, ya que el test aplicado tiene una baja potencia se decidirá ,ás adelante la necesidad de aplicar o no una diferencia.
 
 ## Ajuste de modelos
 
-A continuación, se visualizan la funciones de autocorrelación simple y parcial de residuos para comprobar si se cumple la hipótesis de ruido blanco. Inicialmente, se hace sobre los datos originales porque la serie original es el residuo.
+A continuación, se visualizan la funciones de autocorrelación simple y parcial de residuos para comprobar si se cumple la hipótesis de ruido blanco, que implica que los residuos están incorrelados entre sí. En este caso, se construye sobre los datos originales porque la serie original inicialmente es toda residuo.
 
-En la siguiente gráfica se muestra la función de correlación simple. Se puede notar que la cantidad de palitos que están fuera de la banda son infinitos por lo que estamos en presencia de un MA (denota el orden de la q) infinito. En clase fue demostrado que un MA infinito es equivalente a un AR (parte autorregresiva) finito.
+En la siguiente gráfica se muestra la función de correlación simple. Se puede notar que la cantidad de palitos que están fuera de la banda son infinitos por lo que estamos en presencia de un MA (denota el orden de la q) infinito. En clase fue demostrado que un MA infinito es equivalente a un AR (parte autorregresiva) finito, por lo tanto es necesario detrminar el orden del AR finito.
 
 ```{r}
 acf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
     main= "Función de autocorrelacion simple")
 ```
 
-Para determinar el orden de la AR se dibuja el gráfico de correlación parcial. De igual manera el orden de la P se determina teniendo en cuenta la cantidad de líneas fuera de la banda. La imagen sugiere de momento que el orden de la parte autorregresiva puede ser 1 porque es la línea que más sobresale.
+Para determinar el orden de la AR se dibuja el gráfico de correlación parcial. De igual manera, el orden de la p se determina teniendo en cuenta la cantidad de líneas fuera de la banda. 
 
 ```{r}
 pacf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
 
 ```
+La imagen sugiere, de momento, que el orden de la parte autorregresiva puede ser 1 porque es la línea que más sobresale. Por esta razón, se propone como modelo inicial un AR(1).
 
-Por esta razón se propone como modelo inicial un AR(1)
-
-### Modelo 1
+### Modelo 1: AR(1)
 
 ```{r}
-
 fit.1 <- Arima(data.train.ts,
                order = c(1, 0, 0),
                method = 'ML')
 
 fit.1
-```
-```{r}
+
 coeftest(fit.1)
 ```
-Los dos parámetros son significativos y distintos de 0. La suma de los parámetros no es cercana a 1 por lo que no se viola la condición de estacionalidad.
-
-
-Analicemos las correlaciones entre los parámetros para evitar que exista colinealidad.
+Al analizar los coeficientes del modelo, se puede notar que los dos parámetros son significativos y distintos de 0. La suma de los parámetros no es cercana a 1 por lo que no se viola la condición de estacionalidad. Analicemos las correlaciones entre los parámetros para evitar que exista colinealidad.
 
 ```{r}
 cor.arma(fit.1)
 ```
-La correlación entre ambos parámetros no es alta por lo cual no existe colinealidad.
-
-Analicemos la hipótesis de ruido blanco.
-
-El siguiente test muestra si las correlaciones de los 6 primeros residuos son ruido blanco.
+La correlación entre ambos parámetros no es alta por lo cual no existe colinealidad. A continuación se analiza la hipótesis de ruido blanco.
+El siguiente test muestra si las correlaciones de los 6 primeros residuos son ruido blanco. Los valores muestran que aún no hemos logrado ruido blanco.
 
 ```{r}
 Box.test.2(residuals(fit.1),
            nlag = c(6, 12, 18, 24, 30, 36, 48))
 ```
-Comprobemos la afirmación anterior a través de las gráficas de autocorrelacion.Efectivamente, en la siguiente figura, se puede observar que la serie no cumple la hipótesis de ruido blanco.
+Comprobemos la afirmación anterior a través de las gráficas de autocorrelacion. Efectivamente, en la siguiente figura, se puede observar que la serie no cumple la hipótesis de ruido blanco.
 
 ```{r}
 acf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
     main= "Función de autocorrelacion simple")
 ```
 Se puede observar cierta simetría lo que indica que hay una parte regular que va asociada a los instantes inmediatamente anteriores y una parte estacional que va asociada a los mismos instantes pero retardados ese período de tiempo -> SARIMA multiplicativo.
-
-Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 4
+Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 4, por lo tanto tenemos un MA infinito en los múltiplos de 4 por lo cual es un AR finito en los múltiplos de 4. Para determinar el orden de la p dibujamos nuevamente en gráfico de autocorrelación parcial.
 
 ```{r}
 pacf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
@@ -156,7 +140,7 @@ pacf(fit.1$residuals, lag.max = 48, xlab = "Hipotecas",
 ```
 El palito más sobresaliente de la banda es el 1 lo cual sugiere un modelo AR(1)
 
-### Modelo 2
+### Modelo 2: SAR(1)x(1)[12]
 
 ```{r}
 fit.2 <- Arima(data.train.ts,
@@ -166,30 +150,221 @@ fit.2 <- Arima(data.train.ts,
 
 fit.2
 
-```
-```{r}
 coeftest(fit.2)
 ```
+Lo parámetros son significativos. y en ninguno de los casos el 1 pertenece al intervalo, por lo tanto se cumple la condición de estacionalidad. Analicemos la correlación entre parámetros.
 
 ```{r}
 cor.arma(fit.2)
 ```
+
+Al analizar las correlaciones, se puede notar que no existe una alta correlación entre los parámetros. Analicemos la existencia de ruido blanco en el modelo.
+
+
 ```{r}
-acf(fit.2$residuals, lag.max = 48, xlab = "Hipotecas",
+Box.test.2(residuals(fit.2),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.2$residuals, lag.max = 72, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
+
+```
+Las autocorrelaciones indican que los 6 primeros no son cero, por lo tanto no existe aún ruido blanco. Esto se reafirma si analizamos la gráfico de correlación simple. La máxima autocorrelación simple distinta de 0 determina el orden de MA, por eso en este caso se puede sugerir un modelo MA(1). Como se trata de un MA finito no es necesario analizar la autocorrelación parcial y pasamos directamente a un nuevo modelo.
+
+## Modelo 3: SARIMA(1,0,0)(1, 0, 1)[12]
+
+```{r}
+fit.3 <- Arima(data.train.ts,
+               order = c(1, 0, 0),
+               seasonal = list(order = c(1, 0, 1), period=12),
+               method = 'ML')
+
+fit.3
+
+coeftest(fit.3)
+```
+La suma es diferente de 1 en todos los parámetros, pero no todos son significativos como es el caso de SMA(1) por lo que no se cumple la hipótesis de invertibilidad, lo que se traduce en que los datos remotos tienen mayor peso que los datos más recientes. Esta condición es deseable pero no necesaria para el de modelos ARMA.
+
+Al analizar la matriz de correlación también aparece una alta correlación entre SAM(1) y SAR(1).
+
+```{r}
+cor.arma(fit.3)
+```
+Analicemos los gráficos de autocorrelación. Se observa que al incluir un MA(1) no se logra obtener ruido blanco.
+
+```{r}
+
+Box.test.2(residuals(fit.3),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.3$residuals, lag.max = 72, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+
+```
+En la gráfica de autocorrelación simple otra vez sobre sale el palito correspondiente al 1, pero no podemos agregar un AM(1) porque ya lo tenemos incluido. Analicemos el gráfico de correlación parcial.
+
+```{r}
+pacf(fit.3$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion parcial")
+```
+Nuevamente sale AR(1), intentemos con un AR(4)
+
+
+## Modelo 4: SARIMA(1,0,0)(1, 1, 0)[12]
+
+```{r}
+
+fit.4 <- Arima(data.train.ts,
+               order = c(1, 0, 0),
+               seasonal = list(order = c(4, 0, 1), period=4),
+               method = 'ML')
+fit.4
+
+coeftest(fit.4)
 ```
 ```{r}
-pacf(fit.2$residuals, lag.max = 48, xlab = "Hipotecas",
+cor.arma(fit.4)
+```
+
+```{r}
+Box.test.2(residuals(fit.4),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.4$residuals, lag.max = 72, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+```
+
+```{r}
+pacf(fit.4$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion parcial")
+```
+Aún no obtenemos ruido blanco, intentemos diferenciar.
+
+## Modelo 5: 
+
+
+```{r}
+
+fit.5 <- Arima(data.train.ts,
+               order = c(1, 1, 0),
+               seasonal = list(order = c(1, 0, 1), period=12),
+               method = 'ML')
+fit.5
+
+coeftest(fit.5)
+
+```
+```{r}
+Box.test.2(residuals(fit.5),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.5$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+```
+ ## Modelo 6: 
+ 
+```{r}
+
+fit.6 <- Arima(data.train.ts,
+               order = c(1, 1, 0),
+               seasonal = list(order = c(0, 1, 1), period=12),
+               method = 'ML')
+fit.6
+
+coeftest(fit.6)
+```
+
+
+```{r}
+Box.test.2(residuals(fit.6),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.6$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+```
+
+```{r}
+pacf(fit.6$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion parcial")
+```
+## Modelo 7:
+
+```{r}
+
+fit.7 <- Arima(data.train.ts,
+               order = c(1, 1, 0),
+               seasonal = list(order = c(1, 1, 2), period=4),
+               method = 'ML')
+fit.7
+
+coeftest(fit.7)
+
+Box.test.2(residuals(fit.7),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.7$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+
+pacf(fit.7$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion parcial")
+```
+
+## Análisis de intervenciones
+
+```{r}
+calendar <- data
+
+calendar$weekday <- wday(calendar$date)
+calendar$day <- day(calendar$date)
+calendar$month <- month(calendar$date)
+
+# Se definen los festivos nacionales
+
+calendar$p_01ene <- ifelse(calendar$day==1 & calendar$month==1, 1, 0)
+calendar$p_06ene <- ifelse(calendar$day==6 & calendar$month==1, 1, 0)
+calendar$p_19mar <- ifelse(calendar$day==19 & calendar$month==3, 1, 0)
+calendar$p_01may <- ifelse(calendar$day==1 & calendar$month==5, 1, 0)
+calendar$p_15ago <- ifelse(calendar$day==15 & calendar$month==8, 1, 0)
+calendar$p_12oct <- ifelse(calendar$day==12 & calendar$month==10,1, 0)
+calendar$p_01nov <- ifelse(calendar$day==1 & calendar$month==11, 1 ,0)
+calendar$p_06dic <- ifelse(calendar$day==6 & calendar$month==12, 1 ,0)
+calendar$p_08dic <- ifelse(calendar$day==8 & calendar$month==12, 1 ,0)
+calendar$p_25dic <- ifelse(calendar$day==25 & calendar$month==12, 1 ,0)
+
+variables <- names(calendar) %in% c("weekday", "day", "month") 
+calendar <- calendar[!variables]
+calendar.train <- subset(calendar, year(date) != 2019) 
+calendar.train <- as.matrix(calendar[,2:ncol(calendar.train)])
+names(as.data.frame(calendar))
+
+calendar.validate <- subset(calendar, year(date) == 2019)
+calendar.validate <- as.matrix(calendar.validate[,2:ncol(calendar.validate)])
+
+```
+
+### Modelo 8
+
+```{r}
+
+fit.8 <- Arima(data.train.ts,
+               order = c(1, 1, 0),
+               seasonal = list(order = c(1, 1, 2), period=4),
+               method = 'ML',
+               xreg = calendar.train[,3:12])
+fit.8
+
+coeftest(fit.8)
+
+Box.test.2(residuals(fit.8),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.8$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+
+pacf(fit.8$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
 
 ```
-
-
-
-
-
-Si en em AM1 la suma de los parámetros es cercana a 1 eso indica que se viola la condición de invertibilidad lo que se traduce en que los datos remotos tienen mayor peso que los datos más recientes.
-
 
 
 
