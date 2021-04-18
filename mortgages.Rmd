@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introducción
 
-El dataset describe el comportamiento de la contratación de hipotecas en España desde 2003 hasta 2019. El objetivo es desarrollar un modelo de series temporales ...
+Las series temporales son técnicas de aprendizaje que permiten analizar los datos y la secuencia de tiempo para predecir eventos futuros. Permiten explicar la evolución histórica de una variable a lo largo del tiempo y predecir sus valores futuros. En este trabajo se presentan un conjunto de modelos basados en análisis temporales que permiten modelar y predecir el comportamiento de la contratación de hipotecas en España, específicamente en el País Vasco. Para ello se cuenta con un *dataset* que contiene datos de la cantidad de hipotecas contratadas en cada provincia del País Vasco desde 2003 hasta 2019. El objetivo es desarrollar un modelo de series temporales sobre los datos de 2003 a 2018 que minimice el error de predicción en los datos de 2019.
 
 ```{r echo=FALSE, message=FALSE}
 library(lubridate)
@@ -26,6 +26,13 @@ library(timeDate)
 library(tsoutliers)
 ```
 
+## Desarrollo 
+
+En esta sección se construye la serie correspondiente a la comunidad autónoma. Asimismo, se presentan y analizan los diferentes modelos ARMA de series temporales, mostrando los modelos intermedios y los razonamientos que condujeron a proponer cada uno de ellos. 
+
+### Análisis exploratorio.
+
+Inicialmente se almacenan en memoria los datos correspondientes a la comunidad autónoma País Vasco. El conjunto de datos original contiene la cantidad de hipotecas contratadas mensualmente en cada provincia, con el objetivo de realizar el análisis a nivel de comunidad, se suman las cantidades de cada provincia obteniendo una única columna *total* que representa la cantidad de contrataciones mensuales en la comunidad.
 
 ```{r cars, message=FALSE}
 original <- readxl::read_xlsx("./data/Hipotecas.xlsx")
@@ -36,6 +43,7 @@ original$total <- original$Alava + original$Gipuzkoa + original$Vizcaya
 data <- original[c('date', 'total')]
 ```
 
+Para realizar una validación correcta de los modelos a desarrollar el conjunto de datos se divide en entrenamiento y test. Los datos desde 2003 hasta 2018 se utilizarán para entrenar los modelos, mientras que los datos de 2019 serán utilizados en la etapa de validación. 
 
 ```{r}
 data.train <- subset(data, year(data$date) != 2019)
@@ -44,8 +52,7 @@ data.train.ts <- as.ts(data.train$total, frequency = 12)
 data.test.ts <- as.ts(data.test$total, frequency=12)
 ```
 
-En el siguiente gráfico se observa que la serie no es estacionaria pues se evidencia que no es, al menos, estacionaria en media. Sin embargo, comprobemos las hipótesis de estacionalidad de manera analítica.
-
+En la siguiente gráfica se muestra la serie temporal que analizaremos en este trabajo, obtenida tras la suma de los datos de las tres provincias que componen la comunidad. 
 
 ```{r}
 ggplot(aes(x= date, y = total), data = data.train) +
@@ -53,6 +60,8 @@ ggplot(aes(x= date, y = total), data = data.train) +
   xlab('FECHA') + ylab('Hipotecas')
 
 ```
+
+A simple vista se puede determinar que en la serie hay presencia de datos atípicos tipo pulso, por ejemplo, el pico observable en 2006, que rompe de manera puntual el patrón de la serie. Asimismo, se observa que la serie no es estacionaria pues se evidencia que no es, al menos, estacionaria en media. Comprobemos las hipótesis de estacionalidad de manera analítica en la siguiente sección.
 
 ## Modelos
 
@@ -66,44 +75,48 @@ box_cox <- boxcox(total ~ date,
 lambda <- box_cox$x[which.max(box_cox$y)]
 lambda
 ```
-El obtener un lambda cercano a , diferente de 1, indica que la serie no es estacionaria en varianza, por lo tanto, hay que aplicar la transformación elevando la serie a lambda.  
+
+Al obtener un lambda de 0.65, diferente de 1, indica que la serie no es estacionaria en varianza, por lo tanto, hay que aplicar la transformación elevando la serie a lambda.  
 
 ```{r}
-
 data.train$exp_total = data.train$total**lambda
 data.test$exp_total = data.test$total**lambda
 data.train.ts <- as.ts(data.train$exp_total, frequency = 12)
 data.test.ts <- as.ts(data.test$exp_total, frequency=12)
 ```
 
-Verifiquemos si el modelo es estacionario en media a través del test Dickey-Fuller. 
+Tras esta transformación ya podemos afirmar que la serie es estacionaria en varianza. Verifiquemos si el modelo es estacionario en media a través del test Dickey-Fuller. 
 
 ```{r}
 adf.test(data.train.ts)
 ```
-Al aplicar el test de Dickey-Fuller se obtiene un p-value alto, por lo que no se puede rechazar la hipótesis nula y esto sugiere que podría ser necesaria una diferencia regular. En este caso, ya que el test aplicado tiene una baja potencia se decidirá ,ás adelante la necesidad de aplicar o no una diferencia.
+Al aplicar el test de Dickey-Fuller se obtiene un p-value alto, por lo que no se puede rechazar la hipótesis nula que plantea que la serie no es estacionaria en media. Esto sugiere que podría ser necesaria una diferencia regular. En este caso, ya que el test aplicado tiene una baja potencia se decidirá más adelante la necesidad de aplicar o no una diferencia.
 
 ## Ajuste de modelos
 
+El objetivo que se persigue es identificar el proceso que subyace bajo los datos, lo cual consiste en identificar los órdenes p y q del modelo ARMA que generó la serie temporal. Esto se puede determinar a través de las funciones de autocorrelación simple (f.a.s) y parcial (f.a.p).
+
 A continuación, se visualizan la funciones de autocorrelación simple y parcial de residuos para comprobar si se cumple la hipótesis de ruido blanco, que implica que los residuos están incorrelados entre sí. En este caso, se construye sobre los datos originales porque la serie original inicialmente es toda residuo.
 
-En la siguiente gráfica se muestra la función de correlación simple. Se puede notar que la cantidad de palitos que están fuera de la banda son infinitos por lo que estamos en presencia de un MA (denota el orden de la q) infinito. En clase fue demostrado que un MA infinito es equivalente a un AR (parte autorregresiva) finito, por lo tanto es necesario detrminar el orden del AR finito.
+En la siguiente gráfica se muestra la función de correlación simple f.a.s. Se puede notar que la cantidad de palitos que están fuera de la banda son infinitos por lo que estamos en presencia de un MA (denota el orden de la q) infinito. En clase fue demostrado que un MA infinito es equivalente a un AR (parte autorregresiva, denota el orden de la p) finito, por lo tanto es necesario determinar el orden del AR finito.
 
 ```{r}
 acf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
     main= "Función de autocorrelacion simple")
 ```
 
-Para determinar el orden de la AR se dibuja el gráfico de correlación parcial. De igual manera, el orden de la p se determina teniendo en cuenta la cantidad de líneas fuera de la banda. 
+Para determinar el orden de la AR se dibuja el gráfico de autocorrelación parcial. De igual manera, el orden de la p se determina teniendo en cuenta la cantidad de líneas fuera de la banda en la función f.a.p. 
 
 ```{r}
 pacf(data.train.ts, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
-
 ```
-La imagen sugiere, de momento, que el orden de la parte autorregresiva puede ser 1 porque es la línea que más sobresale. Por esta razón, se propone como modelo inicial un AR(1). Como es una serie mensual el periodo será 12.
 
-### Modelo 1: AR(1)
+La imagen sugiere, de momento, que el orden de la parte autorregresiva puede ser 1 porque es la línea que más sobresale sobre el resto. Por esta razón, se propone como modelo inicial un AR(1). 
+
+El gráfico de la función de autocorrelación simple f.a.s, aunque con un orden infinito, muestra también que existe cierta periodicidad en los múltiplos de 4 lo que sugiere que el período pudiera ser 4. Sin embargo, al tratarse de una serie mensual lo más natural es establecer período 12, un período 12 siempre reflejará también el período 4. Además, por cuestiones de explicabilidad de los modelos, seria más conveniente seleccionar período 12 puesto que es más evidente la relación que existe entre un mes determinado y el mismo mes del año anterior, que entre un mes y 4 meses anteriores.
+
+### Modelo 1: ARIMA(1, 0, 0)
 
 ```{r}
 fit.1 <- Arima(data.train.ts,
@@ -120,29 +133,32 @@ Al analizar los coeficientes del modelo, se puede notar que los dos parámetros 
 ```{r}
 cor.arma(fit.1)
 ```
-La correlación entre ambos parámetros no es alta por lo cual no existe colinealidad. A continuación se analiza la hipótesis de ruido blanco.
+La correlación entre ambos parámetros no es alta por lo cual no existe colinealidad. A continuación, se analiza la hipótesis de ruido blanco.
 El siguiente test muestra si las correlaciones de los 6 primeros residuos son ruido blanco. Los valores muestran que aún no hemos logrado ruido blanco.
 
 ```{r}
 Box.test.2(residuals(fit.1),
            nlag = c(6, 12, 18, 24, 30, 36, 48))
 ```
-Comprobemos la afirmación anterior a través de las gráficas de autocorrelacion. Efectivamente, en la siguiente figura, se puede observar que la serie no cumple la hipótesis de ruido blanco.
+Visualicemos la afirmación anterior a través de las gráficas de autocorrelación. Efectivamente, en la siguiente figura, se puede observar que la serie no cumple la hipótesis de ruido blanco pues existen múltiples líneas fuera de la banda.
 
 ```{r}
 acf(fit.1$residuals, lag.max = 100, xlab = "Hipotecas",
     main= "Función de autocorrelacion simple")
 ```
-Se puede observar cierta simetría lo que indica que hay una parte regular que va asociada a los instantes inmediatamente anteriores y una parte estacional que va asociada a los mismos instantes pero retardados ese período de tiempo -> SARIMA multiplicativo.
-Continuamos teniendo un MA infinito pero esta vez en los múltiplos de 4, por lo tanto tenemos un MA infinito en los múltiplos de 4 por lo cual es un AR finito. Para determinar el orden de la p dibujamos nuevamente en gráfico de autocorrelación parcial.
+
+Se puede observar cierta simetría lo que indica que hay una parte regular que va asociada a los instantes inmediatamente anteriores y una parte estacional que va asociada a los mismos instantes pero retardados ese período de tiempo. Esto sugiere la existencia de un modelo SARIMA multiplicativo.
+
+Continuamos teniendo un MA infinito, por lo tanto seguimos teniendo un AR finito. Para determinar el orden de la p dibujamos nuevamente en gráfico de autocorrelación parcial.
 
 ```{r}
 pacf(fit.1$residuals, lag.max = 100, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion parcial")
 ```
-El palito más sobresaliente de la banda es el 1 lo cual sugiere un modelo AR(1)
 
-### Modelo 2: SAR(1)x(1)[12]
+En el gráfico de la función f.a.p el palito que más sobresale por fuera de la banda es el 1 lo cual sugierela inclusión de un modelo AR(1) en la parte estacional, que habíamos decidido adicionar con anterioridad.
+
+### Modelo 2: ARIMA(1, 0, 0)x(1, 0, 0)[12]
 
 ```{r}
 fit.2 <- Arima(data.train.ts,
@@ -154,13 +170,13 @@ fit.2
 
 coeftest(fit.2)
 ```
-Lo parámetros son significativos. y en ninguno de los casos el 1 pertenece al intervalo, por lo tanto se cumple la condición de estacionalidad. Analicemos la correlación entre parámetros.
+Los parámetros son significativos y en ninguno de los casos el 1 pertenece al intervalo de confianza, por lo tanto, se cumple la condición de estacionalidad. Analicemos la correlación entre parámetros.
 
 ```{r}
 cor.arma(fit.2)
 ```
 
-Al analizar las correlaciones, se puede notar que no existe una alta correlación entre los parámetros. Analicemos la existencia de ruido blanco en el modelo.
+Al analizar las correlaciones, se puede notar que no existe una correlación significativamente alta entre los parámetros que puede afectar el modelo. Analicemos la existencia de ruido blanco en el modelo a través de las correlaciones y la función f.a.s.
 
 
 ```{r}
@@ -171,9 +187,10 @@ acf(fit.2$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
 
 ```
-Las autocorrelaciones indican que los 6 primeros no son cero, por lo tanto no existe aún ruido blanco. Esto se reafirma si analizamos la gráfico de correlación simple. La máxima autocorrelación simple distinta de 0 determina el orden de MA, por eso en este caso se puede sugerir un modelo MA(1) en la parte regular. Como se trata de un MA finito no es necesario analizar la autocorrelación parcial y pasamos directamente a un nuevo modelo.
 
-### Modelo 3: SARIMA(1,0,1)(1, 0, 0)[12]
+Las autocorrelaciones indican que el p-value de los 6 primeros son muy cercanos a cero, por lo tanto, no existe aún ruido blanco. Esto se reafirma si analizamos la gráfica de autocorrelación simple. La máxima autocorrelación simple distinta de 0 determina el orden de MA, por eso, en este caso, se puede sugerir un modelo MA(1) en la parte regular. Como se trata de un MA finito no es necesario analizar la autocorrelación parcial y pasamos directamente a un nuevo modelo.
+
+### Modelo 3: ARIMA(1,0,1)(1,0,0)[12]
 
 ```{r}
 fit.3 <- Arima(data.train.ts,
@@ -185,12 +202,12 @@ fit.3
 
 coeftest(fit.3)
 ```
-En este caso todos los parámetros son significativos, sin embargo, el 1 pertenece al intervalo de confianza del parámetro AR(1) lo que indica que no se está cumpliendo la condición de estacionalidad y es necesario aplicar una diferencia y quitar el AR(1). De todas formas, analicemos la correlación y la hipótesis de ruido blanco. 
+En este caso, todos los parámetros son significativos, sin embargo, el 1 pertenece al intervalo de confianza del parámetro asociado a la AR(1) lo que indica que no se está cumpliendo la condición de estacionalidad y es necesario transformar el AR(1) en una diferencia. De todas formas, analicemos la correlación y la hipótesis de ruido blanco. 
 
 ```{r}
 cor.arma(fit.3)
 ```
-No hay alta correlación entre los parámetros.
+No existe una alta correlación entre los parámetros.
 
 ```{r}
 Box.test.2(residuals(fit.3),
@@ -204,9 +221,9 @@ pacf(fit.3$residuals, lag.max = 48, xlab = "Hipotecas",
 
 ```
 
-Al analizar las autocorrelacionesse puede notar que ya estamos en presencia de ruido blanco, como muestra también la gráfica de autocorrelación simple. Apliquemos una diferencia en la parte regular, como habíamos determinado anteriormente, para cumplir la hipótesis de estacionalidad.
+Al analizar las autocorrelaciones se puede notar que la inclusión de un modelo MA(1) nos condujo a la presencia de ruido blanco, como muestra también la gráfica de autocorrelación simple. Apliquemos una diferencia en la parte regular, como habíamos determinado anteriormente, para que se cumpla la hipótesis de estacionalidad.
 
-### Modelo 4: SARIMA(0, 1, 1)x(1,0,0)[12]
+### Modelo 4: ARIMA(0,1,1)(1,0,0)[12]
 
 ```{r}
 
@@ -218,7 +235,7 @@ fit.4
 
 coeftest(fit.4)
 ```
-Al aplicar la diferencia, se ha eliminado la constante. Comprobemos si realmente la constante no es significtiva.
+Al aplicar la diferencia, se ha eliminado la constante. Aunque en la mayoría de los casos al aplicar una diferencia este parámetro se hace no significativo, comprobemos si realmente la constante no es significtiva forzando su inclusión en el modelo.
 
 ```{r}
 
@@ -227,11 +244,9 @@ fit.4 <- Arima(data.train.ts,
                order = c(0, 1, 1),
                seasonal = list(order = c(1, 0, 0), period=12),
                method = 'ML')
-fit.4
-
 coeftest(fit.4)
 ```
-Al inlcuir la constante, el p-valor de la misma es 0.5 por lo que efectivamente no era significativa y lo podemos quitar nuevamente.
+Al inlcuir la constante, el p-valor de la misma es 0.5 por lo que efectivamente se puede determinar que no es significativa y lo podemos eliminar nuevamente.
 
 ```{r}
 fit.4 <- Arima(data.train.ts,
@@ -241,39 +256,35 @@ fit.4 <- Arima(data.train.ts,
 fit.4
 
 coeftest(fit.4)
-
 ```
-Todos los parámetros son significativos y la suma no es cercana a 1, por lo tanto se vuelve a cumplir la hipótesis de estacionalidad y en el caso de MA(1) también se cumple la invertibilidad que aunque no es necesaria para ajustar un modelo ARMA sí es deseable pues de no cumplirse indica que se lee stá dado más pesos a los datos remotos que a los más cercanos.
+Todos los parámetros son significativos y la suma no es cercana a 1, por lo tanto, se vuelve a cumplir la hipótesis de estacionalidad. En el caso de MA(1) también se cumple la hipótesis de invertibilidad que aunque no es necesaria para ajustar un modelo ARMA sí es deseable pues su  incumplimiento lleva a que datos más alejados tengan más peso en la predicción que datos más recientes. Analicemos las correlaciones en los parámetros para evitar la colinealidad en el modelo.
+
 
 ```{r}
 cor.arma(fit.4)
 ```
+La matriz de correlación muestra que no hay peligro de autocolinealidad dada la baja correlación entre los parámetros. Analicemos si este nuevo modelo cumple la hipótesis de ruido blanco.
+
 
 ```{r}
 Box.test.2(residuals(fit.4),
            nlag = c(6, 12, 18, 24, 30, 36, 48))
 
-acf(fit.4$residuals, lag.max = 72, xlab = "Hipotecas",
+acf(fit.4$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
 ```
+
 Al analizar el gráfico de autocorrelación simple y analizar las correlaciones se puede decir que ya estamos en presencia de ruido blanco. Sin embargo, aún existen unos pocos palitos que se salen de las bandas como el 19, 32, entre otros. Como no se observa un criterio evidente que permita corregir este hecho pasaremos a incluir variables explicativas.
 
 
 ## Análisis de intervenciones
 
-En una serie mensual hay tres efectos importantes que reflejar. El efecto de calendario consiste en reflejar en el modelo la diferencia entre los días festivos y laborables que hay en un mes. Además, se deben tener en cuenta los días de Semana Santa y de los años bisiestos. A continuación se definen unas funciones que permiten reflejar estos factores en el análisis de la serie.
+En una serie mensual hay tres efectos importantes que reflejar. El efecto calendario que consiste en reflejar en el modelo la diferencia entre los días festivos y laborables que hay en un mes. Además, se deben tener en cuenta los días de Semana Santa y los años bisiestos. 
+
+La siguiente función, tomada del ejemplo visto en clase, permite determinar la cantidad de festivos en un mes, cuántos días de Semana Santa hubieron en ese mes y si el mes corresponde a un año bisiesto o no. 
 
 ```{r}
 calculoExplicativasCalendario <- function(variableFecha, domingoYFestivosJuntos){
-  
-  #######################################
-  #     Creaci?n de todas las fechas    #
-  #######################################
-  
-  # Se crean las fechas a nivel diario entre una primera y una ?ltima fecha dada.
-  # Para llegar al ?ltimo d?a del mes de la ?ltima fecha, se suman d?as para llegar
-  # al 28/29, 30 o 31 seg?n proceda.
-  
   if (month(max(variableFecha)) %in% c(1,3,5,7,8,10,12)) {
     diasHastaFinMes <- 30
   } else if (month(max(variableFecha)) %in% c(4,6,9,11)) {
@@ -292,24 +303,13 @@ calculoExplicativasCalendario <- function(variableFecha, domingoYFestivosJuntos)
   viernesSanto <- domingoResurrecion-2
   juevesSanto <- domingoResurrecion-3
   
-  # Se unen y ordenan todos los d?as que forman la Semana Santa
   semanaSanta <- sort(c(juevesSanto, viernesSanto, sabadoSanto, domingoResurrecion, lunesPascua))
   
-  # Se pone en formato data.frame y se a?ade un indicador
   semanaSanta <- data.frame(fechas=semanaSanta, semanaSanta=rep(1,length(semanaSanta)))
   
-  # Se a?aden a la tabla maestra de fechas
   todasLasFechas_2 <- merge(x = todasLasFechas, y = semanaSanta, by = "fechas", all.x = TRUE)
   
-  # Se reemplazan los NAs por 0, terminando de definir as? el indicador de SemanaSanta
   todasLasFechas_2$semanaSanta[is.na(todasLasFechas_2$semanaSanta)] <- 0
-  
-  ######################################
-  #     CAlculo de la variable dt      #
-  ######################################
-  
-  # 1. Definici?n de festivos:
-  ############################
   
   calendario <- todasLasFechas
   
@@ -331,37 +331,26 @@ calculoExplicativasCalendario <- function(variableFecha, domingoYFestivosJuntos)
   
   calendario$festivo <- rowSums(subset(calendario, select=p_01ene:p_25dic))
   
-  # La definici?n de la variable dt var?a seg?n la opci?n domingoYFestivosJuntos.
-  
   if (domingoYFestivosJuntos==0){
     
     calendario$sabado <- ifelse(calendario$diaSemana==7, 1 ,0)
     calendario$domingo <- ifelse(calendario$diaSemana==1, 1 ,0)
     
-    # D?as laborables: todos menos s?bados y domingos
     calendario$laborable <- 1-calendario$sabado-calendario$domingo
     
   } else {
     
     calendario$sabado <- ifelse(calendario$diaSemana==7, 1 ,0)
     calendario$domingo <- ifelse(calendario$diaSemana==1, 1 ,0)
-    # Domingo=1 si domingo=1 o festivo=1
     calendario$domingo <- ifelse(calendario$domingo==1 | calendario$festivo==1, 1 ,0)
     
-    # D?as laborables: todos menos s?bados y domingos/festivos
     calendario$laborable <- 1-calendario$sabado-calendario$domingo    
   }
-  # 2. Definici?n de variable dt:
-  ###############################
-  
-  # Se filtran las columnas de inter?s y se a?ade la Semana Santa
   
   calendario_2 <- calendario[, c("fechas", "mes", "anyo", "sabado", "domingo", "laborable", "festivo")]
   
   todasLasFechasFinal <- merge(x = todasLasFechas_2, y = calendario_2,
                                by = "fechas", all.x = TRUE)
-  
-  # Agregamos la serie a nivel a?o-mes
   
   calendarioAnyoMes <- aggregate(todasLasFechasFinal[,c("sabado","domingo",
                                                         "laborable", "semanaSanta", "festivo")],
@@ -369,23 +358,11 @@ calculoExplicativasCalendario <- function(variableFecha, domingoYFestivosJuntos)
                                          anyo=todasLasFechasFinal$anyo),
                                  "sum")
   
-  # Se calcula la variable dt:
-  
   calendarioAnyoMes$dt <- calendarioAnyoMes$laborable-(5/2)*(calendarioAnyoMes$sabado+calendarioAnyoMes$domingo)
-  
-  
-  ######################################
-  #     C?lculo de a?os bisiestos      #
-  ######################################
   
   calendarioAnyoMes$anyoNum <- as.numeric(levels(calendarioAnyoMes$anyo))[calendarioAnyoMes$anyo]
   
   calendarioAnyoMes$bisiesto <- ifelse(calendarioAnyoMes$mes==2 &(calendarioAnyoMes$anyoNum %% 4)==0, 1 ,0)
-  
-  
-  #######################################################
-  #     Tabla final con explicativas de calendario      #
-  #######################################################
   
   if (domingoYFestivosJuntos==0){
     explicativasCalendario <- cbind(fecha=variableFecha, calendarioAnyoMes[, c("semanaSanta", "dt", "bisiesto", "festivo")])
@@ -398,7 +375,7 @@ calculoExplicativasCalendario <- function(variableFecha, domingoYFestivosJuntos)
 }
 ```
 
-La variable dt representa la variable calendario que si es positiva es el número de días festivos de más que tiene respecto a un mes perfecto (como febrero) y si es negativa el número días de menos respecto a un mes perfecto. Intentemos solamente con el calendario, los días de semanas santa y si el año es bisiesto o no.
+La variable dt representa la variable calendario, si toma valores positivos indica el número de días festivos de más que tiene un mes respecto a un mes perfecto (como febrero) y si es negativa, el número días de menos respecto a un mes perfecto. Intentemos solamente con las variables calendario, los días de Semanas Santa y si el año es bisiesto o no.
 
 ```{r}
 
@@ -411,7 +388,9 @@ calendar.train <-
 ```
 
 
-### Modelo 5: ARIMA(0, 1, 1)x(1,0,0)[12] + calendario
+Se toma el último modelo que habíamos llegado a la conclusión que lograba ruido blanco y le incluimos los factores explicativos referentes al calendaria, Semana Santa y años bisiestos. A este modelo le llamaremos ARIMA(0,1,1)(1,0,0)[12] + calendario, aunque inclye los otros factores mencionados.
+
+### Modelo 5: ARIMA(0,1,1)(1,0,0)[12] + calendario
 
 ```{r}
 
@@ -424,34 +403,33 @@ fit.calendar
 
 coeftest(fit.calendar)
 ```
-El hecho de que la variable calendario (dt) sea positiva indica, como es de esperar, que cuanto más días laborables más contratos de hipotecas. Miestras más días de Semana Santa haya en un mes, se realizan menos contrataciones. Todas las variables son significativas excepto la relativa a los años bisiestos, sin embrago, al ser positiva no afecta mucho al modelo y tiene sentido incluirla, porque si un año tiene un días más, es un día más donde se pueden comprar hipotecas. 
-
+El hecho de que la variable calendario (dt) sea positiva indica, como es de esperar, que cuanto más días laborables más contratos de hipotecas. Mientras más días de Semana Santa haya en un mes, se realizan menos contrataciones. Todas las variables son significativas excepto la relativa a los años bisiestos, sin embargo, al ser positiva no afecta mucho al modelo y tiene sentido incluirla, porque si un año tiene un días más, es un día más donde se pueden comprar hipotecas. 
 
 Analicemos la correlación entre los parámetros.
 
 ```{r}
 cor.arma(fit.calendar)
-
 ```
-La matriz de correlación no muestra que exista una correlación especialmente alta entre ningún par de parámetros. Analicemos si se cumple la hipótesis de ruido blanco.
+La matriz de correlación no muestra que exista una correlación especialmente alta entre ningún par de parámetros. Analicemos si se continúa cumpliendo la hipótesis de ruido blanco.
 
 ```{r}
 Box.test.2(residuals(fit.calendar),
            nlag = c(6, 12, 18, 24, 30, 36, 48))
 ```
-Los p-values se han mantenido altos (mayores que 0,05) por lo que existe ruido blanco. Confirmemos mediante las gráficas de autocorrelación.
+Los p-values, aunque han disminuido, se han mantenido altos (mayores que 0,05) por lo que existe ruido blanco. Visualicemos mediante las gráficas de autocorrelación.
 
 
 ```{r}
 acf(fit.calendar$residuals, lag.max = 48, xlab = "Hipotecas",
      main = "Funcion de autocorrelacion simple")
 ```
-Al observar la gráfica de autocorrelación simple se puede notar que sí existe ruido blanco tal como indicaban las correlaciones. 
+
+Al observar la gráfica de autocorrelación simple se puede notar que sí existe ruido blanco tal como indicaban las correlaciones. En el análsis descriptivo inicial se pudo observar la existencia de datos atípicos, en la siguiente sección se determina de manera analítica si existe datos atípicos que puedan afectar la estabilidad del modelo en predicciones futuras.
 
 
 ## Identificación de *outliers*
 
-A continuación se analizan los casos atípicos del modelo seleccionado.
+A continuación se determina analíticamente si existen casos atípicos en el modelo seleccionado.
 
 ```{r}
 outliers.train <- locate.outliers(fit.calendar$residuals,
@@ -459,9 +437,10 @@ outliers.train <- locate.outliers(fit.calendar$residuals,
                                       types = c("AO", "LS", "TC"),cval=3)
 
 outliers.train$abststat=abs(outliers.train$tstat)
+outliers.train$abststat
 ```
 
-Los outliers de tipo AO son comparables a un impulso y afectan a la serie solamente en un momento puntual. Los outliers de tipo LS implican un cambio de nivel en la serie y los TC producen un cambio transitorio. Asociemos los outliers identificados con el mes que le corresponden para facilitar la interpretación.
+En este caso, como fue visto en clase, se buscan tres tipos de atipicidad. Los outliers de tipo AO son comparables a un impulso y afectan a la serie solamente en un momento puntual. Los outliers de tipo LS implican un cambio de nivel en la serie y los TC producen un cambio transitorio. Se ha identificado que el modelo es sensible a 6 casos atípicos. Asociemos los outliers identificados con el mes que le corresponden para facilitar la interpretación.
 
 ```{r}
 data.train$ind <- as.numeric(row.names(data.train))
@@ -469,27 +448,69 @@ outliers.train.date <- merge(outliers.train, data.train[,c('ind', 'date')],  by 
 arrange(outliers.train.date,desc(outliers.train.date$abststat))
 ```
 
-El outlier más significativo está asociado un tipo LS (cambio de nivel) que se produjo en junio de 2011. Lo siguiente más importantes son impulsos puntuales en mayo de 2006, febrero de 2005 y febrero de 2015. Seguidos de otro cambio de nivel en abril de 2013 y un cambio transitorio en julio de 2011. En este caso, como ya hemos obtenido un modelo con ruido blanco, y los outliers no tienen una interpretación evidente no serán incluidos en el modelo.
+El outlier más significativo está asociado a un tipo LS (cambio de nivel) que se produjo en junio de 2011. Los siguientes más importantes son impulsos puntuales en mayo de 2006, febrero de 2005 y febrero de 2015. Seguidos de otro cambio de nivel en abril de 2013 y un cambio transitorio en julio de 2011. 
 
+Según la Asociación Hipotecaria Española (AHE), en el artículo "Las hipotecas registraron en el 2011 la mayor caída de la historia", al cierre de 2011 se registra un desplome del saldo total de crédito hipotecario de las entidades financieras que fue considerado, en aquel momento, la mayor caída de la historia registrada. Este hecho pudiera asociarse al valor atípico observado en junio de 2011.
+
+Asimismo, en 2006 La Caixa publica su Informe Mensual nº290, donde descarta que haya burbuja y vaticina una "desaceleración suave" del sector inmobiliario, lo cual podría asociarse a los outliers de 2006 y 2005. 
+
+Según el informe de la Sociedad de Tasación, en el año 2015 el precio de vivienda nueva permaneció estable en Comunidades como Aragón, Castilla-La Mancha, Castilla y León, Murcia y País Vasco, lo cual no se ajusta al valor atípico de febrero de 2015. Tampoco se ha encontrado una interpetación evidente para el resto de los casos por lo cual no serán incluidos en el modelo.
+
+### Modelo 6: ARIMA(0,1,1)(1,0,0)[12] + calendario + outliers
+
+```{r}
+
+outliers.train <- outliers(c("LS","AO", "AO"), c(102, 41, 26))
+
+outliers.variables.train <- outliers.effects(outliers.train, length(fit.calendar$residuals))
+outliers.calendar.train <- as.matrix(cbind(calendar.train, outliers.variables.train))
+
+fit.calendar.outliers <- Arima(data.train.ts,
+                               order = c(0, 1, 1),
+                               seasonal = list(order = c(1, 0, 0), period=12),
+                               xreg = outliers.calendar.train,
+                               method = 'ML')
+fit.calendar.outliers
+
+coeftest(fit.calendar.outliers)
+```
+Los coeficientes del modelo indican que las variables relativas a los outliers incluidas son significativas para el modelo, por lo tanto serán conservadas en el modelo final. Analicemos si su inclusión afectó la correlación entre los parámetros.
+
+```{r}
+cor.arma(fit.calendar.outliers)
+```
+Al analizar los coeficientes de correlación se evidencia que no existe un alto valor (mayor que 0.8 en valor absoluto) entre ninguno de los parámetros. Por lo tanto, no hay riesgo de colinealidad. Analicemos si se preserva la existencia de ruido blanco. 
+
+
+```{r}
+
+Box.test.2(residuals(fit.calendar.outliers),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(fit.calendar.outliers$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+
+```
+
+Tanto el test de Portemanteau como el gráfico de aucorrelación simple muestra que la serie es ruido blanco. Por lo tanto, este es nuestro modelo final. En la siguiente sección se evaluarán algunos de los modelos propuestos en función de las predicciones obtenidas en el conjunto de test.
 
 ## Predicciones
 
-Adicionamos las variables explicativas  aplicadas anteriormente al conjunto de entrenamiento al conjunto de test.
-
+Adicionamos las variables explicativas aplicadas anteriormente al conjunto de entrenamiento al conjunto de test.
 
 ```{r}
 
 exp.calendar.test <- calculoExplicativasCalendario(data.test$date,domingoYFestivosJuntos=0)
 
-calendar.test <- 
-  as.matrix(
-    exp.calendar.test[,c("semanaSanta", "dt", "bisiesto")])
+outliers.variables.test <- outliers.variables.train[181:192,]
+
+outliers.calendar.test <- 
+  as.matrix(cbind(exp.calendar.test[,c("semanaSanta", "dt", "bisiesto")], outliers.variables.test))
+
+preds <- as.data.frame(predict(fit.calendar.outliers, n.ahead=12, newxreg=outliers.calendar.test))
+
 ```
 
-
-```{r}
-preds <- as.data.frame(predict(fit.calendar, n.ahead=12, newxreg=calendar.test))
-```
 
 ### Límites de confianza al 95%
 
@@ -498,15 +519,11 @@ preds <- as.data.frame(predict(fit.calendar, n.ahead=12, newxreg=calendar.test))
 U <- (preds$pred + 2*preds$se)**(1/lambda)
 L <- (preds$pred - 2*preds$se)**(1/lambda)
 
-```
-
-```{r}
 data.pred <- data.frame(date = data.test$date, pred = (preds$pred)**(1/lambda),
                          LimSup = U, LimInf =L)
 data.real <- merge(data[,c("date","total")], data.pred, by = "date", all.x = T)
 
 ```
-
 
 ### Gráfico Real vs. Predicción
 
@@ -526,7 +543,7 @@ ggplotly(grafico1)
 
 ### Gráfico Real + Predicción + Límites
 
-En el siguiente gráfico se dibujan los valores reales, las predicciones y los intervalos de confianza.
+En el siguiente gráfico se dibujan los valores reales, las predicciones y los intervalos de confianza calculados anteriormente teniendo en cuenta la desviación estándar.
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -545,9 +562,12 @@ grafico2 <- ggplot(data = data.real) +
 
 grafico2
 ```
+
 En la siguiente sección se comparan las predicciones que se obtendrían ajustando automáticamente un modelo a cada una de las provincias que integran la comunidad autónoma y sumando las predicciones que cada uno de ellos genera.
 
 ## Ajuste automático
+
+En el proceso automático se ajusta una serie para cada una de las provincias del País Vasco y posteriormente, se suman las predicciones individuales para obtener valores comparables con el resto de modelos desarrollados.
 
 ### Provincia Alava
 
@@ -583,6 +603,16 @@ alava.fit <- auto.arima(data.alava.train.ts,
                                xreg=calendar.alava.train,
                                stepwise=TRUE)
 
+
+alava.fit
+
+cor.arma(alava.fit)
+
+Box.test.2(residuals(alava.fit),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(alava.fit$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
 
 alava.preds <- as.data.frame(predict(alava.fit, n.ahead=12, newxreg=calendar.alava.test))
 
@@ -623,6 +653,15 @@ gipuzkoa.fit <- auto.arima(data.gipuzkoa.train.ts,
                                xreg=calendar.gipuzkoa.train,
                                stepwise=TRUE)
 
+gipuzkoa.fit
+
+cor.arma(gipuzkoa.fit)
+
+Box.test.2(residuals(gipuzkoa.fit),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(gipuzkoa.fit$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
 
 gipuzkoa.preds <- as.data.frame(predict(gipuzkoa.fit, n.ahead=12, newxreg=calendar.gipuzkoa.test))
 ```
@@ -662,11 +701,22 @@ vizcaya.fit <- auto.arima(data.vizcaya.train.ts,
                                xreg=calendar.vizcaya.train,
                                stepwise=TRUE)
 
+vizcaya.fit
+
+cor.arma(vizcaya.fit)
+
+Box.test.2(residuals(vizcaya.fit),
+           nlag = c(6, 12, 18, 24, 30, 36, 48))
+
+acf(vizcaya.fit$residuals, lag.max = 48, xlab = "Hipotecas",
+     main = "Funcion de autocorrelacion simple")
+
+
 viscaya.preds <- as.data.frame(predict(vizcaya.fit, n.ahead=12, newxreg=calendar.vizcaya.test))
 
 ```
 
-Sumando las predicciones de cada provincia de la comunidad
+Los modelos ajustados automáticamente para las provincias Alava, Gipuzkoa y Vizcaya fueron ARIMA(0,1,1), ARIMA(0,1,2) y ARIMA(0,1,1) respectivamente, en ninguno de los casos se incluye la parte estacional. El modelo de la provincia de Alava fue ARIMA(0,1,1), sin embargo, tanto el test como la gráfica de autocorrelación simple muestra que no cumple la hipótesis de ruido blanco. Así mismo ocurre con las provincias de Gipuzkoa y Vizcaya. Al observar los gráficos de autocorrelación simple se puede observar en todos los casos que los palitos que más sobresalen son múltiplos de 12, por lo tanto, incluir una parte estacional con período 12, como se hizo en el modelo propuesto en este trabajao, podría llevar a la existencia de ruido blanco en estos casos. Para la construcción de un modelo comparable al modelo final construido se suman las predicciones de cada provincia de la comunidad.
 
 
 ```{r}
@@ -697,14 +747,14 @@ grafico3 <- ggplot(data = all.preds) +
 ggplotly(grafico3)
 ```
 
-Visualmente se puede notar que la curva correpondiente al modelo ajustado ARIMA se aproxima más a los valores reales que el obtenido mediante auto.arima en los primeros meses de 2019, sin embargo, en los últimos meses nuestro primer modelo se aleja más que el modelo automático. Comprobemos esta hipótesis mediante el cálculo analítico de los errores. 
+Visualmente se puede notar que la curva correspondiente al modelo ajustado ARIMA se aproxima más a los valores reales que el obtenido mediante auto.arima en los primeros meses de 2019, sin embargo, en los últimos meses nuestro primer modelo se aleja más que el modelo automático. Comprobemos mediante el cálculo analítico de los errores. 
 
 ## Cálculo de errores
 
 En esta sección se calcula el error de tres de los modelos presentados:
 
-* SARIMA(0, 1, 1)x(1,0,0)[12]
-* SARIMA(0, 1, 1)x(1,0,0)[12] + calendario
+* ARIMA(0, 1, 1)x(1,0,0)[12]
+* ARIMA(0, 1, 1)x(1,0,0)[12] + calendario + outliers
 * AUTOARIMA
 
 
@@ -713,22 +763,22 @@ En esta sección se calcula el error de tres de los modelos presentados:
 ```{r}
 
 preds.arima <- as.data.frame(fit.4$fitted)**(1/lambda)
-names(preds.arima) <- c("SARIMA(0, 1, 1)x(1,0,0)[12]")
+names(preds.arima) <- c("ARIMA(0, 1, 1)x(1,0,0)[12]")
 
-preds.calendar <- as.data.frame(fit.calendar$fitted)**(1/lambda)
-names(preds.calendar) <- c("SARIMA(0, 1, 1)x(1,0,0)[12] + calendario")
+preds.calendar.outliers <- as.data.frame(fit.calendar.outliers$fitted)**(1/lambda)
+names(preds.calendar.outliers) <- c("ARIMA(0, 1, 1)x(1,0,0)[12] + calendario + outliers")
 
-preds.sum <- as.data.frame(alava.fit$fitted)**(1/lambda) + as.data.frame(gipuzkoa.fit$fitted)**(1/lambda) + as.data.frame(vizcaya.fit$fitted)**(1/lambda)
-names(preds.sum) <- c("AUTOARIMA")
+preds.autoarima <- as.data.frame(alava.fit$fitted)**(1/lambda) + as.data.frame(gipuzkoa.fit$fitted)**(1/lambda) + as.data.frame(vizcaya.fit$fitted)**(1/lambda)
+names(preds.autoarima) <- c("AUTOARIMA")
 
-real_predictions <- cbind(data.train,preds.sarima, preds.calendar, preds.sum)
+real_predictions <- cbind(data.train,preds.arima, preds.calendar.outliers, preds.autoarima)
 
-real_predictions$monthly.MAPE.sarima <- abs(100*(real_predictions$total - 
-                                                   real_predictions$`SARIMA(0, 1, 1)x(1,0,0)[12]`)/real_predictions$total)
+real_predictions$monthly.MAPE.arima <- abs(100*(real_predictions$total - 
+                                                   real_predictions$`ARIMA(0, 1, 1)x(1,0,0)[12]`)/real_predictions$total)
 
 
-real_predictions$monthly.MAPE.calendar <- abs(100*(real_predictions$total - 
-                                                   real_predictions$`SARIMA(0, 1, 1)x(1,0,0)[12] + calendario`)/real_predictions$total)
+real_predictions$monthly.MAPE.calendar.outliers <- abs(100*(real_predictions$total - 
+                                                   real_predictions$`ARIMA(0, 1, 1)x(1,0,0)[12] + calendario + outliers`)/real_predictions$total)
 
 
 real_predictions$monthly.MAPE.autoarima <- abs(100*(real_predictions$total - 
@@ -736,20 +786,22 @@ real_predictions$monthly.MAPE.autoarima <- abs(100*(real_predictions$total -
 
 ```
 
-Error global sobre histórico:
+Error global in-sampling sobre histórico:
 
 ```{r}
-global.MAPE.sarima <- mean(real_predictions$monthly.MAPE.sarima)
-global.MAPE.sarima
+global.MAPE.arima <- mean(real_predictions$monthly.MAPE.arima)
+print(paste0("ARIMA(0, 1, 1)x(1,0,0)[12]: ", global.MAPE.arima))
 
-global.MAPE.calendar <- mean(real_predictions$monthly.MAPE.calendar)
-global.MAPE.calendar
+global.MAPE.calendar <- mean(real_predictions$monthly.MAPE.calendar.outliers)
+print(paste0("ARIMA(0, 1, 1)x(1,0,0)[12] + calendario + outliers: ", global.MAPE.calendar))
 
 globa.MAPE.autoarima <- mean(real_predictions$monthly.MAPE.autoarima)
-globa.MAPE.autoarima
+print(paste0("AUTOARIMA: ", globa.MAPE.autoarima))
 
 ```
 ### Error out-of-sampling
+
+Calculemos los errores sobre el conjunto de test
 
 ```{r}
 preds <- all.preds[193:204,]
@@ -757,41 +809,34 @@ preds_fit.4 <- as.data.frame(predict(fit.4, n.ahead=12)$pred)**(1/lambda)
 colnames(preds_fit.4) <- c("pred.arima")
 
 preds <- cbind(preds, preds_fit.4)
-colnames(preds) <- c("date", "real", "calendar.pred", "LimSup", "LimInf", "sum.pred", "sarima.pred")
+colnames(preds) <- c("date", "real", "calendar.outliers.pred", "LimSup", "LimInf", "autoarima.pred", "arima.pred")
+
+preds$monthly.MAPE.arima <- abs(100*(preds$real - preds$arima.pred)/preds$real)
+preds$monthly.MAPE.calendar.outliers <- abs(100*(preds$real - preds$calendar.outliers.pred)/preds$real)
+preds$monthly.MAPE.autoarima <-  abs(100*(preds$real - preds$autoarima.pred)/preds$real)
 
 ```
 
+Error out-of-samplig sobre test.
 
 ```{r}
-
-preds$monthly.MAPE.sarima <- abs(100*(preds$real - preds$sarima.pred)/preds$real)
-preds$monthly.MAPE.sum <-  abs(100*(preds$real - preds$sum.pred)/preds$real)
-preds$monthly.MAPE.calendar <- abs(100*(preds$real - preds$calendar.pred)/preds$real)
-
-```
+test.MAPE.arima <- mean(preds$monthly.MAPE.arima)
+print(paste0("ARIMA(0, 1, 1)x(1,0,0)[12]: ", test.MAPE.arima))
 
 
-Calculemos los errores sobre el conjunto de test
+test.MAPE.calendar.outliers <- mean(preds$monthly.MAPE.calendar.outliers)
+print(paste0("ARIMA(0, 1, 1)x(1,0,0)[12] + calendario + outliers: ", test.MAPE.calendar.outliers))
 
-```{r}
-
-test.MAPE.sarima <- mean(preds$monthly.MAPE.sarima)
-test.MAPE.sarima
-
-test.MAPE.sum <- mean(preds$monthly.MAPE.sum)
-test.MAPE.sum
-
-test.MAPE.calendar <- mean(preds$monthly.MAPE.calendar)
-test.MAPE.calendar
+test.MAPE.autoarima <- mean(preds$monthly.MAPE.autoarima)
+print(paste0("AUTOARIMA: ", test.MAPE.autoarima))
 
 ```
-Al analizar los errores se puede observar que el modelo que menor error alcanza es el SARIMA(0, 1, 1)x(1,0,0)[12] incliyendo las varibles explicativas de calendario, tanto en el conjunto de test como en el conjunto de training.
+Al analizar los errores se puede observar que el modelo que menor error alcanza es el ARIMA(0, 1, 1)x(1,0,0)[12] incluyendo las varibles explicativas de calendario y valores atípicos, tanto en el conjunto de test como en el conjunto de training. Le sigue el modelo ARIMA(0,1,1)x(1,0,0)[12] sin incluir el calendario y valores atípicos y por último, el modelo de suma de las provincias. Sin embargo, la diferencia entre errores es muy pequeña.
 
 
 ## Conclusiones
 
-En este trabajo se ha desarrollado ...
-
+En este trabajo se han desarrollado un conjunto de modelos ARMA para el análisis de datos temporales. La selección de modelos se ha hecho siguiendo la metodología Box-Jenkins estudiada en clase. Tras el , se puede concluir que el modelo que mejor resultados alcanzó fue el ARIMA(0, 1, 1)x(1,0,0)[12] que incluye las varibles explicativas de calendario y valores atípicos, aunque la diferencia respecto al resto de los modelos no es muy diferenciadora. Esto pudiera sugerir que la inclusión de variables explicativas, que aumentan la complejidad del modelo y el tiempo invertido, no hacen mucha diferencia. Sin embargo, debemos tener en cuenta que se está midiendo la efectividad de los modelos en un conjunto con solo 12 muestras correspondientes a un solo año. Por lo cual la inclusión de variables explicativas es recomendable, porque permiten simular mejor el comportamiento de datos futuros al anadir información externa. Por otra parte, el enfoque basado en la suma de predicciones mostró un rendimiento más bajo aún incluyendo variables relativas al calendario lo cual sugiere, en este caso, que un análisis personalizado y adaptado al escenario particular arroja mejores resultados que los procesos auomáticos.
 
 
 
